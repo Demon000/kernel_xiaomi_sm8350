@@ -262,7 +262,7 @@ static void sde_encoder_phys_cmd_te_rd_ptr_irq(void *arg, int irq_idx)
 	}
 	spin_unlock_irqrestore(phys_enc->enc_spinlock, lock_flags);
 
-	sde_encoder_helper_get_pp_line_count(phys_enc->parent, info);
+	sde_encoder_helper_get_pp_line_count(phys_enc->parent, info, true);
 
 	if (phys_enc->parent_ops.handle_vblank_virt)
 		phys_enc->parent_ops.handle_vblank_virt(phys_enc->parent,
@@ -610,9 +610,9 @@ static int _sde_encoder_phys_cmd_poll_write_pointer_started(
 	}
 
 	if (phys_enc->has_intf_te)
-		ret = hw_intf->ops.get_vsync_info(hw_intf, &info);
+		ret = hw_intf->ops.get_vsync_info(hw_intf, &info, false);
 	else
-		ret = hw_pp->ops.get_vsync_info(hw_pp, &info);
+		ret = hw_pp->ops.get_vsync_info(hw_pp, &info, false);
 
 	if (ret)
 		return ret;
@@ -661,13 +661,13 @@ static bool _sde_encoder_phys_cmd_is_ongoing_pptx(
 		if (!hw_intf || !hw_intf->ops.get_vsync_info)
 			return false;
 
-		hw_intf->ops.get_vsync_info(hw_intf, &info);
+		hw_intf->ops.get_vsync_info(hw_intf, &info, true);
 	} else {
 		hw_pp = phys_enc->hw_pp;
 		if (!hw_pp || !hw_pp->ops.get_vsync_info)
 			return false;
 
-		hw_pp->ops.get_vsync_info(hw_pp, &info);
+		hw_pp->ops.get_vsync_info(hw_pp, &info, true);
 	}
 
 	SDE_EVT32(DRMID(phys_enc->parent),
@@ -1296,14 +1296,14 @@ static int sde_encoder_phys_cmd_get_write_line_count(
 		if (!hw_intf->ops.get_vsync_info)
 			return -EINVAL;
 
-		if (hw_intf->ops.get_vsync_info(hw_intf, &info))
+		if (hw_intf->ops.get_vsync_info(hw_intf, &info, true))
 			return -EINVAL;
 	} else {
 		hw_pp = phys_enc->hw_pp;
 		if (!hw_pp->ops.get_vsync_info)
 			return -EINVAL;
 
-		if (hw_pp->ops.get_vsync_info(hw_pp, &info))
+		if (hw_pp->ops.get_vsync_info(hw_pp, &info, true))
 			return -EINVAL;
 	}
 
