@@ -257,7 +257,6 @@ static DEFINE_SPINLOCK(spon_list_slock);
 static LIST_HEAD(spon_dev_list);
 
 #ifdef CONFIG_QGKI_SYSTEM
-extern int in_long_press;
 static u32 comb_reset_time;
 static bool comb_reset_enable;
 #endif
@@ -1120,10 +1119,6 @@ static irqreturn_t qpnp_kpdpwr_bark_irq(int irq, void *_pon)
 {
 	struct qpnp_pon *pon = _pon;
 	dev_err(pon->dev, "Enter in kpdpwr irq !");
-
-#ifdef CONFIG_QGKI_SYSTEM
-	in_long_press = 1;
-#endif
 
 	kthread_unpark(pon->longpress_task);
 	wake_up_process(pon->longpress_task);
