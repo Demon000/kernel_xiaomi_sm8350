@@ -8,6 +8,8 @@
 #include <linux/of_gpio.h>
 #include <linux/err.h>
 
+#include <drm/mi_disp_notifier.h>
+
 #include "msm_drv.h"
 #include "sde_connector.h"
 #include "msm_mmu.h"
@@ -1238,6 +1240,7 @@ int dsi_display_set_power(struct drm_connector *connector,
 		int power_mode, void *disp)
 {
 	struct dsi_display *display = disp;
+	struct mi_disp_notifier notify_data;
 	int rc = 0;
 
 	if (!display || !display->panel) {
@@ -1245,17 +1248,27 @@ int dsi_display_set_power(struct drm_connector *connector,
 		return -EINVAL;
 	}
 
+	notify_data.data = &power_mode;
+	notify_data.disp_id = display->display_selection_type;
+
 	switch (power_mode) {
 	case SDE_MODE_DPMS_LP1:
+		mi_disp_notifier_call_chain(MI_DISP_DPMS_EARLY_EVENT, &notify_data);
 		rc = dsi_panel_set_lp1(display->panel);
+		mi_disp_notifier_call_chain(MI_DISP_DPMS_EVENT, &notify_data);
 		break;
 	case SDE_MODE_DPMS_LP2:
+		mi_disp_notifier_call_chain(MI_DISP_DPMS_EARLY_EVENT, &notify_data);
 		rc = dsi_panel_set_lp2(display->panel);
+		mi_disp_notifier_call_chain(MI_DISP_DPMS_EVENT, &notify_data);
 		break;
 	case SDE_MODE_DPMS_ON:
 		if ((display->panel->power_mode == SDE_MODE_DPMS_LP1) ||
-			(display->panel->power_mode == SDE_MODE_DPMS_LP2))
+			(display->panel->power_mode == SDE_MODE_DPMS_LP2)) {
+			mi_disp_notifier_call_chain(MI_DISP_DPMS_EARLY_EVENT, &notify_data);
 			rc = dsi_panel_set_nolp(display->panel);
+			mi_disp_notifier_call_chain(MI_DISP_DPMS_EVENT, &notify_data);
+		}
 		break;
 	case SDE_MODE_DPMS_OFF:
 	default:
