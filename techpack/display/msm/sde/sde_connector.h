@@ -16,6 +16,8 @@
 #include "sde_kms.h"
 #include "sde_fence.h"
 
+#include "mi_sde_connector.h"
+
 #define SDE_CONNECTOR_NAME_SIZE	16
 #define SDE_CONNECTOR_DHDR_MEMPOOL_MAX_SIZE	SZ_32
 #define MAX_CMD_RECEIVE_SIZE       256
@@ -509,6 +511,7 @@ struct sde_connector {
 
 	struct backlight_device *bl_device;
 	struct sde_cdev *cdev;
+	struct mi_sde_cdev *mi_cdev;
 	struct notifier_block n;
 	unsigned long thermal_max_brightness;
 	struct delayed_work status_work;
@@ -542,6 +545,8 @@ struct sde_connector {
 
 	u8 cmd_rx_buf[MAX_CMD_RECEIVE_SIZE];
 	int rx_len;
+
+	struct mi_layer_state mi_layer_state;
 };
 
 /**

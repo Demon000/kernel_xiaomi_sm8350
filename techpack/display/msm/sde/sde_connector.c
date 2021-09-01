@@ -20,6 +20,10 @@
 #include "sde_vm.h"
 #include <drm/drm_probe_helper.h>
 
+#include "mi_disp_feature.h"
+#include "mi_dsi_display.h"
+#include "mi_cooling_device.h"
+
 #define BL_NODE_NAME_SIZE 32
 #define HDR10_PLUS_VSIF_TYPE_CODE      0x81
 
@@ -79,6 +83,7 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	struct sde_connector *c_conn;
 	int bl_lvl;
 	struct drm_event event;
+	struct disp_event d_event;
 	int rc = 0;
 	struct msm_drm_private *priv;
 	struct sde_kms *sde_kms;
@@ -109,6 +114,9 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	if (!bl_lvl && brightness)
 		bl_lvl = 1;
 
+	if (bl_lvl && bl_lvl < display->panel->bl_config.bl_min_level)
+		bl_lvl = display->panel->bl_config.bl_min_level;
+
 	if (!c_conn->allow_bl_update) {
 		c_conn->unset_bl_level = bl_lvl;
 		return 0;
@@ -130,6 +138,13 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 			msm_mode_object_event_notify(&c_conn->base.base,
 				c_conn->base.dev, &event, (u8 *)&brightness);
 		}
+
+
+		d_event.disp_id = mi_get_disp_id(display);
+		d_event.type = MI_DISP_EVENT_BACKLIGHT;
+		d_event.length = sizeof(brightness);
+		mi_disp_feature_event_notify(&d_event, (u8 *)&brightness);
+
 		rc = c_conn->ops.set_backlight(&c_conn->base,
 				c_conn->display, bl_lvl);
 		c_conn->unset_bl_level = 0;
@@ -143,7 +158,13 @@ done:
 
 static int sde_backlight_device_get_brightness(struct backlight_device *bd)
 {
-	return 0;
+	struct dsi_display *display;
+	struct sde_connector *c_conn;
+
+	c_conn = bl_get_data(bd);
+	display = (struct dsi_display *) c_conn->display;
+
+	return display->panel->mi_cfg.last_bl_level;
 }
 
 static const struct backlight_ops sde_backlight_device_ops = {
@@ -175,6 +196,7 @@ static int sde_backlight_setup(struct sde_connector *c_conn,
 	struct sde_kms *sde_kms;
 	static int display_count;
 	char bl_node_name[BL_NODE_NAME_SIZE];
+	int rc;
 
 	if (!c_conn || !dev || !dev->dev || !dev->dev_private) {
 		SDE_ERROR("invalid param\n");
@@ -216,6 +238,16 @@ static int sde_backlight_setup(struct sde_connector *c_conn,
 	if (IS_ERR_OR_NULL(c_conn->cdev)) {
 		SDE_ERROR("Failed to register backlight cdev: %ld\n",
 				    PTR_ERR(c_conn->cdev));
+		backlight_device_unregister(c_conn->bl_device);
+		c_conn->bl_device = NULL;
+		return -ENODEV;
+	}
+
+	rc = mi_sde_backlight_setup(c_conn, dev->dev, c_conn->bl_device);
+	if (rc) {
+		SDE_ERROR("Failed to register backlight mi_cdev: %ld\n",
+				    PTR_ERR(c_conn->mi_cdev));
+		backlight_cdev_unregister(c_conn->cdev);
 		backlight_device_unregister(c_conn->bl_device);
 		c_conn->bl_device = NULL;
 		return -ENODEV;
@@ -840,6 +872,8 @@ int sde_connector_pre_kickoff(struct drm_connector *connector)
 
 	SDE_EVT32_VERBOSE(connector->base.id);
 
+	mi_sde_connector_fod_hbm_fence(connector);
+
 	rc = c_conn->ops.pre_kickoff(connector, c_conn->display, &params);
 
 	if (c_conn->connector_type == DRM_MODE_CONNECTOR_DSI)
@@ -944,6 +978,9 @@ void sde_connector_helper_bridge_enable(struct drm_connector *connector)
 				MSM_ENC_TX_COMPLETE);
 	c_conn->allow_bl_update = true;
 
+	/* wake up pending work to set doze brightness*/
+	mi_dsi_display_wakeup_pending_work(display);
+
 	if (c_conn->bl_device) {
 		c_conn->bl_device->props.power = FB_BLANK_UNBLANK;
 		c_conn->bl_device->props.state &= ~BL_CORE_FBBLANK;
@@ -1004,6 +1041,8 @@ void sde_connector_destroy(struct drm_connector *connector)
 
 	if (c_conn->cdev)
 		backlight_cdev_unregister(c_conn->cdev);
+	if (c_conn->mi_cdev)
+		mi_backlight_cdev_unregister(&c_conn->mi_cdev->sde_cdev);
 	if (c_conn->bl_device)
 		backlight_device_unregister(c_conn->bl_device);
 	drm_connector_unregister(connector);
@@ -2488,6 +2527,97 @@ static void sde_connector_check_status_work(struct work_struct *work)
 	_sde_connector_report_panel_dead(conn, false);
 }
 
+static DEFINE_MUTEX(esd_lock);
+static irqreturn_t esd_err_irq_handle(int irq, void *data)
+{
+	struct sde_connector *c_conn;
+	struct dsi_display *display;
+	struct drm_event event;
+	int power_mode;
+	const char *sde_power_mode_str[] = {
+		[SDE_MODE_DPMS_ON] = "SDE_MODE_DPMS_ON",
+		[SDE_MODE_DPMS_LP1] = "SDE_MODE_DPMS_LP1",
+		[SDE_MODE_DPMS_LP2] = "SDE_MODE_DPMS_LP2",
+		[SDE_MODE_DPMS_STANDBY] = "SDE_MODE_DPMS_STANDBY",
+		[SDE_MODE_DPMS_SUSPEND] = "SDE_MODE_DPMS_SUSPEND",
+		[SDE_MODE_DPMS_OFF] = "SDE_MODE_DPMS_OFF",
+	};
+
+	mutex_lock(&esd_lock);
+	c_conn = data;
+	display = c_conn->display;
+	if (!display || !display->panel) {
+		SDE_ERROR("invalid display/panel\n");
+		mutex_unlock(&esd_lock);
+		return IRQ_HANDLED;
+	}
+
+	DSI_INFO("panel esd irq trigging \n");
+
+	mi_dsi_panel_esd_irq_ctrl(display->panel, false);
+
+	if (c_conn->connector_type == DRM_MODE_CONNECTOR_DSI) {
+		if (dsi_panel_initialized(display->panel)) {
+			if (atomic_read(&(display->panel->esd_recovery_pending))) {
+				SDE_ERROR("ESD recovery already pending\n");
+				mutex_unlock(&esd_lock);
+				return IRQ_HANDLED;
+			}
+			power_mode = display->panel->power_mode;
+			DSI_INFO("power_mode = %s\n", sde_power_mode_str[power_mode]);
+			if (power_mode == SDE_MODE_DPMS_ON ||
+				power_mode == SDE_MODE_DPMS_LP1) {
+				atomic_set(&display->panel->esd_recovery_pending, 1);
+				_sde_connector_report_panel_dead(c_conn, false);
+			} else {
+				if (!c_conn->panel_dead) {
+					atomic_set(&display->panel->esd_recovery_pending, 1);
+					c_conn->panel_dead = true;
+					event.type = DRM_EVENT_PANEL_DEAD;
+					event.length = sizeof(bool);
+					msm_mode_object_event_notify(&c_conn->base.base,
+						c_conn->base.dev, &event, (u8 *)&c_conn->panel_dead);
+					SDE_EVT32(SDE_EVTLOG_ERROR);
+					SDE_ERROR("esd irq check failed report PANEL_DEAD"
+						" conn_id: %d enc_id: %d\n",
+						c_conn->base.base.id, c_conn->encoder->base.id);
+				}
+			}
+		}
+	}
+
+	mutex_unlock(&esd_lock);
+	return IRQ_HANDLED;
+}
+
+static int sde_connector_register_esd_irq(struct sde_connector *c_conn)
+{
+	struct dsi_display *display = c_conn->display;
+	int rc = 0;
+
+	/* register esd irq and enable it after panel enabled */
+	if (c_conn->connector_type == DRM_MODE_CONNECTOR_DSI) {
+		if (!display || !display->panel) {
+			SDE_ERROR("invalid display/panel\n");
+			return -EINVAL;
+		}
+		if (display->panel->mi_cfg.esd_err_irq_gpio > 0) {
+			rc = request_threaded_irq(display->panel->mi_cfg.esd_err_irq,
+				NULL, esd_err_irq_handle,
+				display->panel->mi_cfg.esd_err_irq_flags,
+				"esd_err_irq", c_conn);
+			if (rc) {
+				SDE_ERROR("register esd irq failed\n");
+			} else {
+				SDE_INFO("register esd irq success\n");
+				disable_irq(display->panel->mi_cfg.esd_err_irq);
+			}
+		}
+	}
+
+	return rc;
+}
+
 static const struct drm_connector_helper_funcs sde_connector_helper_ops = {
 	.get_modes =    sde_connector_get_modes,
 	.mode_valid =   sde_connector_mode_valid,
@@ -2968,6 +3098,8 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 
 	INIT_DELAYED_WORK(&c_conn->status_work,
 			sde_connector_check_status_work);
+
+	sde_connector_register_esd_irq(c_conn);
 
 	return &c_conn->base;
 
