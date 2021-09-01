@@ -314,10 +314,6 @@ static int __cam_req_mgr_notify_error_on_link(
 	int rc = 0, pd;
 
 	session = (struct cam_req_mgr_core_session *)link->parent;
-	if (!session) {
-		CAM_WARN(CAM_CRM, "session ptr NULL %x", link->link_hdl);
-		return -EINVAL;
-	}
 
 	pd = dev->dev_info.p_delay;
 	if (pd >= CAM_PIPELINE_DELAY_MAX) {
@@ -1126,13 +1122,6 @@ static int __cam_req_mgr_check_sync_for_mslave(
 	}
 
 	req_id = slot->req_id;
-
-	if (!sync_link->req.in_q) {
-		CAM_ERR(CAM_CRM, "Link hdl %x in_q is NULL",
-			sync_link->link_hdl);
-		return -EINVAL;
-	}
-
 	sync_num_slots = sync_link->req.in_q->num_slots;
 	sync_rd_idx = sync_link->req.in_q->rd_idx;
 
@@ -1339,12 +1328,6 @@ static int __cam_req_mgr_check_sync_req_is_ready(
 	}
 
 	req_id = slot->req_id;
-
-	if (!sync_link->req.in_q) {
-		CAM_ERR(CAM_CRM, "Link hdl %x in_q is NULL",
-			sync_link->link_hdl);
-		return -EINVAL;
-	}
 
 	sync_num_slots = sync_link->req.in_q->num_slots;
 	sync_rd_idx    = sync_link->req.in_q->rd_idx;
@@ -1635,14 +1618,9 @@ static int __cam_req_mgr_process_req(struct cam_req_mgr_core_link *link,
 	struct cam_req_mgr_core_link        *tmp_link = NULL;
 	uint32_t                             max_retry = 0;
 
-	session = (struct cam_req_mgr_core_session *)link->parent;
-	if (!session) {
-		CAM_WARN(CAM_CRM, "session ptr NULL %x", link->link_hdl);
-		return -EINVAL;
-	}
-
-	mutex_lock(&session->lock);
 	in_q = link->req.in_q;
+	session = (struct cam_req_mgr_core_session *)link->parent;
+	mutex_lock(&session->lock);
 	/*
 	 * Check if new read index,
 	 * - if in pending  state, traverse again to complete
@@ -2059,10 +2037,6 @@ static int __cam_req_mgr_process_sof_freeze(void *priv, void *data)
 
 	link = (struct cam_req_mgr_core_link *)priv;
 	session = (struct cam_req_mgr_core_session *)link->parent;
-	if (!session) {
-		CAM_WARN(CAM_CRM, "session ptr NULL %x", link->link_hdl);
-		return -EINVAL;
-	}
 
 	spin_lock_bh(&link->link_state_spin_lock);
 	if ((link->watchdog) && (link->watchdog->pause_timer)) {
@@ -2325,7 +2299,6 @@ static void __cam_req_mgr_free_link(struct cam_req_mgr_core_link *link)
 	ptrdiff_t i;
 	kfree(link->req.in_q);
 	link->req.in_q = NULL;
-	link->parent = NULL;
 	i = link - g_links;
 	CAM_DBG(CAM_CRM, "free link index %d", i);
 	cam_req_mgr_core_link_reset(link);
@@ -3692,8 +3665,6 @@ int cam_req_mgr_destroy_session(
 	}
 	list_del(&cam_session->entry);
 	mutex_unlock(&cam_session->lock);
-	mutex_destroy(&cam_session->lock);
-
 	kfree(cam_session);
 
 	rc = cam_destroy_session_hdl(ses_info->session_hdl);
