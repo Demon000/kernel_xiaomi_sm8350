@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
  * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2020 XiaoMi, Inc.
  */
 
 #ifndef __UAPI_LINUX_CAM_REQ_MGR_H
@@ -43,7 +44,7 @@
  * It includes both session and device handles
  */
 #define CAM_REQ_MGR_MAX_HANDLES           64
-#define CAM_REQ_MGR_MAX_HANDLES_V2        128
+#define CAM_REQ_MGR_MAX_HANDLES_V2        256
 #define MAX_LINKS_PER_SESSION             2
 
 /* V4L event type which user space will subscribe to */

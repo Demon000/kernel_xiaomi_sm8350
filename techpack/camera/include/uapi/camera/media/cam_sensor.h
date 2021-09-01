@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only WITH Linux-syscall-note */
 /*
  * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (C) 2020 XiaoMi, Inc.
  */
 
 #ifndef __UAPI_CAM_SENSOR_H__
@@ -118,6 +119,11 @@ struct cam_ois_opcode {
 	__u32 coeff;
 	__u32 pheripheral;
 	__u32 memory;
+	__u8 fw_addr_type;
+	__u8 is_addr_indata;
+	__u8 fwversion;
+	__u32 fwchecksumsize;
+	__u32 fwchecksum;
 } __attribute__((packed));
 
 /**
@@ -130,6 +136,7 @@ struct cam_ois_opcode {
  * @is_ois_calib          :    indicates the calibration data is available
  * @ois_name              :    OIS name
  * @opcode                :    opcode
+ * @is_ois_pre_init       :    indicates the pre initialize data is available
  */
 struct cam_cmd_ois_info {
 	__u32                 slave_addr;
@@ -139,6 +146,7 @@ struct cam_cmd_ois_info {
 	__u8                  is_ois_calib;
 	char                  ois_name[MAX_OIS_NAME_SIZE];
 	struct cam_ois_opcode opcode;
+	uint8_t               is_ois_pre_init; //xiaomi add
 } __attribute__((packed));
 
 /**
