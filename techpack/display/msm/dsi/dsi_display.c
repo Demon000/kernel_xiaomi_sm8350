@@ -7,6 +7,7 @@
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #include <linux/err.h>
+#include <drm/mi_disp_notifier.h>
 
 #include "msm_drv.h"
 #include "sde_connector.h"
@@ -20,6 +21,9 @@
 #include "dsi_pwr.h"
 #include "sde_dbg.h"
 #include "dsi_parser.h"
+
+#include "mi_disp_feature.h"
+#include "mi_dsi_display.h"
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -45,6 +49,50 @@ static const struct of_device_id dsi_display_dt_match[] = {
 	{.compatible = "qcom,dsi-display"},
 	{}
 };
+
+char *mi_dsi_display_get_cmdline_panel_info(struct dsi_display *display)
+{
+	char *buffer = NULL, *buffer_dup = NULL;
+	char *pname = NULL;
+	char *panel_info = NULL;
+	int index = DSI_PRIMARY;
+
+	if (!display) {
+		DSI_ERR("Invalid params\n");
+		return NULL;
+	}
+
+	if (!strcmp(display->display_type, "primary")) {
+		index = DSI_PRIMARY;
+	} else if (!strcmp(display->display_type, "secondary")) {
+		index = DSI_SECONDARY;
+	} else {
+		DSI_ERR("Invalid display_type params\n");
+		return NULL;
+	}
+
+	buffer = kstrdup(boot_displays[index].boot_param, GFP_KERNEL);
+	if (!buffer)
+		return NULL;
+	buffer_dup = buffer;
+
+	buffer = strrchr(buffer, ',');
+	if (buffer && *buffer) {
+		pname = ++buffer;
+	} else {
+		goto exit;
+	}
+
+	buffer = strrchr(pname, ':');
+	if (buffer)
+		*buffer = '\0';
+
+	panel_info = kstrdup(pname, GFP_KERNEL);
+
+exit:
+	kfree(buffer_dup);
+	return panel_info;
+}
 
 bool is_skip_op_required(struct dsi_display *display)
 {
@@ -255,7 +303,7 @@ error:
 	return rc;
 }
 
-static int dsi_display_cmd_engine_enable(struct dsi_display *display)
+int dsi_display_cmd_engine_enable(struct dsi_display *display)
 {
 	int rc = 0;
 	int i;
@@ -303,7 +351,7 @@ done:
 	return rc;
 }
 
-static int dsi_display_cmd_engine_disable(struct dsi_display *display)
+int dsi_display_cmd_engine_disable(struct dsi_display *display)
 {
 	int rc = 0;
 	int i;
@@ -497,7 +545,7 @@ error:
 }
 
 /* Allocate memory for cmd dma tx buffer */
-static int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display)
+int dsi_host_alloc_cmd_tx_buffer(struct dsi_display *display)
 {
 	int rc = 0, cnt = 0;
 	struct dsi_display_ctrl *display_ctrl;
@@ -1173,6 +1221,9 @@ int dsi_display_set_power(struct drm_connector *connector,
 		int power_mode, void *disp)
 {
 	struct dsi_display *display = disp;
+	struct disp_event event;
+	struct mi_disp_notifier notify_data;
+	int disp_id = 0;
 	int rc = 0;
 
 	if (!display || !display->panel) {
@@ -1180,19 +1231,35 @@ int dsi_display_set_power(struct drm_connector *connector,
 		return -EINVAL;
 	}
 
+	disp_id = mi_get_disp_id(display);
+
+	notify_data.data = &power_mode;
+	notify_data.disp_id = disp_id;
+
 	switch (power_mode) {
 	case SDE_MODE_DPMS_LP1:
+		mi_disp_notifier_call_chain(MI_DISP_DPMS_EARLY_EVENT, &notify_data);
 		rc = dsi_panel_set_lp1(display->panel);
+		mi_disp_notifier_call_chain(MI_DISP_DPMS_EVENT, &notify_data);
 		break;
 	case SDE_MODE_DPMS_LP2:
+		mi_disp_notifier_call_chain(MI_DISP_DPMS_EARLY_EVENT, &notify_data);
 		rc = dsi_panel_set_lp2(display->panel);
+		mi_disp_notifier_call_chain(MI_DISP_DPMS_EVENT, &notify_data);
 		break;
 	case SDE_MODE_DPMS_ON:
 		if ((display->panel->power_mode == SDE_MODE_DPMS_LP1) ||
-			(display->panel->power_mode == SDE_MODE_DPMS_LP2))
+			(display->panel->power_mode == SDE_MODE_DPMS_LP2)) {
+			mi_disp_notifier_call_chain(MI_DISP_DPMS_EARLY_EVENT, &notify_data);
 			rc = dsi_panel_set_nolp(display->panel);
+			mi_disp_notifier_call_chain(MI_DISP_DPMS_EVENT, &notify_data);
+		}
 		break;
 	case SDE_MODE_DPMS_OFF:
+		event.disp_id = disp_id;
+		event.type = MI_DISP_EVENT_POWER;
+		event.length = sizeof(power_mode);
+		mi_disp_feature_event_notify(&event, (u8 *)&power_mode);
 	default:
 		return rc;
 	}
@@ -1201,8 +1268,14 @@ int dsi_display_set_power(struct drm_connector *connector,
 	DSI_DEBUG("Power mode transition from %d to %d %s",
 			display->panel->power_mode, power_mode,
 			rc ? "failed" : "successful");
-	if (!rc)
+	if (!rc) {
 		display->panel->power_mode = power_mode;
+
+		event.disp_id = disp_id;
+		event.type = MI_DISP_EVENT_POWER;
+		event.length = sizeof(power_mode);
+		mi_disp_feature_event_notify(&event, (u8 *)&power_mode);
+	}
 
 	return rc;
 }
@@ -5553,6 +5626,13 @@ static int dsi_display_bind(struct device *dev,
 
 	msm_register_vm_event(master, dev, &vm_event_ops, (void *)display);
 
+	rc = mi_disp_feature_attach_display(display,
+				mi_get_disp_id(display), MI_INTF_DSI);
+	if (rc) {
+		DSI_ERR("failed to attach %s display(%s intf)\n",
+				get_disp_id_name(mi_get_disp_id(display)),
+				get_disp_intf_type_name(MI_INTF_DSI));
+	}
 	goto error;
 
 error_host_deinit:
@@ -5599,6 +5679,14 @@ static void dsi_display_unbind(struct device *dev,
 	}
 
 	mutex_lock(&display->display_lock);
+
+	rc = mi_disp_feature_detach_display(display,
+				mi_get_disp_id(display), MI_INTF_DSI);
+	if (rc) {
+		DSI_ERR("failed to detach %s display(%s intf)\n",
+				get_disp_id_name(mi_get_disp_id(display)),
+				get_disp_intf_type_name(MI_INTF_DSI));
+	}
 
 	rc = dsi_display_mipi_host_deinit(display);
 	if (rc)
@@ -7104,6 +7192,7 @@ int dsi_display_set_mode(struct dsi_display *display,
 	int rc = 0;
 	struct dsi_display_mode adj_mode;
 	struct dsi_mode_info timing;
+	struct disp_event event;
 
 	if (!display || !mode || !display->panel) {
 		DSI_ERR("Invalid params\n");
@@ -7146,6 +7235,15 @@ int dsi_display_set_mode(struct dsi_display *display,
 			timing.h_active, timing.v_active, timing.refresh_rate);
 	SDE_EVT32(adj_mode.priv_info->mdp_transfer_time_us,
 			timing.h_active, timing.v_active, timing.refresh_rate);
+
+	event.disp_id = mi_get_disp_id(display);
+	event.type = MI_DISP_EVENT_FPS;
+	event.length = sizeof(timing.refresh_rate);
+	mi_disp_feature_event_notify(&event, (u8 *)&timing.refresh_rate);
+
+	if (display->panel->cur_mode->timing.refresh_rate != timing.refresh_rate) {
+		mi_disp_feature_sysfs_notify(event.disp_id, MI_SYSFS_DYNAMIC_FPS);
+	}
 
 	memcpy(display->panel->cur_mode, &adj_mode, sizeof(adj_mode));
 error:
@@ -7991,6 +8089,18 @@ int dsi_display_enable(struct dsi_display *display)
 		DSI_DEBUG("cont splash enabled, display enable not required\n");
 		dsi_display_panel_id_notification(display);
 
+		rc = mi_dsi_panel_read_gamma_param(display->panel);
+		if (rc) {
+			DSI_ERR("[%s] failed to read gamma para, rc=%d\n",
+				display->name, rc);
+		} else {
+			rc = mi_dsi_panel_update_gamma_param(display->panel);
+			if (rc) {
+				DSI_ERR("[%s] failed to update gamma para, rc=%d\n",
+					display->name, rc);
+			}
+		}
+
 		return 0;
 	}
 
@@ -8404,6 +8514,7 @@ int dsi_display_unprepare(struct dsi_display *display)
 
 void __init dsi_display_register(void)
 {
+	mi_disp_feature_init();
 	dsi_phy_drv_register();
 	dsi_ctrl_drv_register();
 
@@ -8417,7 +8528,9 @@ void __exit dsi_display_unregister(void)
 	platform_driver_unregister(&dsi_display_driver);
 	dsi_ctrl_drv_unregister();
 	dsi_phy_drv_unregister();
+	mi_disp_feature_deinit();
 }
+
 module_param_string(dsi_display0, dsi_display_primary, MAX_CMDLINE_PARAM_LEN,
 								0600);
 MODULE_PARM_DESC(dsi_display0,
