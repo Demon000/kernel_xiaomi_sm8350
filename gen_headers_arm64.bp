@@ -589,6 +589,7 @@ gen_headers_out_arm64 = [
     "linux/v4l2-dv-timings.h",
     "linux/v4l2-mediabus.h",
     "linux/v4l2-subdev.h",
+    "linux/ispv2_ioparam.h",
     "linux/vbox_err.h",
     "linux/vbox_vmmdev_types.h",
     "linux/vboxguest.h",
