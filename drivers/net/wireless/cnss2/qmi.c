@@ -4,6 +4,7 @@
 #include <linux/firmware.h>
 #include <linux/module.h>
 #include <linux/soc/qcom/qmi.h>
+#include <linux/hwid.h>
 
 #include "bus.h"
 #include "debug.h"
@@ -15,6 +16,9 @@
 #define BDF_FILE_NAME_PREFIX		"bdwlan"
 #define ELF_BDF_FILE_NAME		"bdwlan.elf"
 #define ELF_BDF_FILE_NAME_PREFIX	"bdwlan.e"
+
+#define ELF_BDF_FILE_NAME_K2		 "bd_k2.elf"
+
 #define BIN_BDF_FILE_NAME		"bdwlan.bin"
 #define BIN_BDF_FILE_NAME_PREFIX	"bdwlan.b"
 #define REGDB_FILE_NAME			"regdb.bin"
@@ -494,11 +498,17 @@ static int cnss_get_bdf_file_name(struct cnss_plat_data *plat_priv,
 {
 	char filename_tmp[MAX_FIRMWARE_NAME_LEN];
 	int ret = 0;
+	uint32_t hw_platform_ver = get_hw_version_platform();
 
 	switch (bdf_type) {
 	case CNSS_BDF_ELF:
-		if (plat_priv->board_info.board_id == 0xFF)
-			snprintf(filename_tmp, filename_len, ELF_BDF_FILE_NAME);
+		if (plat_priv->board_info.board_id == 0xFF) {
+			if (hw_platform_ver == HARDWARE_PROJECT_K2) {
+				snprintf(filename_tmp, filename_len, ELF_BDF_FILE_NAME_K2);
+			} else {
+				snprintf(filename_tmp, filename_len, ELF_BDF_FILE_NAME);
+			}
+		}
 		else if (plat_priv->board_info.board_id < 0xFF)
 			snprintf(filename_tmp, filename_len,
 				 ELF_BDF_FILE_NAME_PREFIX "%02x",
