@@ -791,8 +791,14 @@ int nfcc_hw_check(struct nfc_dev *nfc_dev)
 	else {
 		/* making sure that the NFCC starts in a clean state. */
 		gpio_set_ven(nfc_dev, 1);/* HPD : Enable*/
+		/* hardware dependent delay */
+		usleep_range(10000, 10100);
 		gpio_set_ven(nfc_dev, 0);/* ULPM: Disable */
+		/* hardware dependent delay */
+		usleep_range(10000, 10100);
 		gpio_set_ven(nfc_dev, 1);/* HPD : Enable*/
+		/* hardware dependent delay */
+		usleep_range(10000, 10100);
 	}
 
 	nci_reset_cmd[0] = 0x20;
@@ -813,7 +819,9 @@ int nfcc_hw_check(struct nfc_dev *nfc_dev)
 
 		if (nfc_dev->interface == PLATFORM_IF_I2C) {
 			gpio_set_ven(nfc_dev, 0);
+			usleep_range(10000, 10100);
 			gpio_set_ven(nfc_dev, 1);
+			usleep_range(10000, 10100);
 		}
 
 		nci_get_version_cmd[0] = 0x00;
@@ -833,6 +841,7 @@ int nfcc_hw_check(struct nfc_dev *nfc_dev)
 			goto err_nfcc_hw_check;
 		}
 
+#ifdef NQ_READ_INT
 		if (nfc_dev->interface == PLATFORM_IF_I2C) {
 			ret = is_data_available_for_read(nfc_dev);
 			if (ret <= 0) {
@@ -842,12 +851,21 @@ int nfcc_hw_check(struct nfc_dev *nfc_dev)
 				goto err_nfcc_hw_check;
 			}
 		}
+#else
+		/* hardware dependent delay */
+		usleep_range(10000, 10100);
+#endif
 
 		ret = nfc_dev->nfc_read(nfc_dev, nci_get_version_rsp,
 					NCI_GET_VERSION_RSP_LEN);
 		if (ret <= 0) {
 			pr_err("%s: - nfc get version rsp error ret %d\n",
 				__func__, ret);
+#ifdef NQ_READ_INT
+			if (nfc_dev->interface == PLATFORM_IF_I2C) {
+				nfc_dev->nfc_disable_intr(nfc_dev);
+			}
+#endif
 			goto err_nfcc_hw_check;
 		} else {
 			nfc_dev->nqx_info.info.chip_type =
@@ -865,6 +883,7 @@ int nfcc_hw_check(struct nfc_dev *nfc_dev)
 		goto err_nfcc_reset_failed;
 	}
 
+#ifdef NQ_READ_INT
 	if (nfc_dev->interface == PLATFORM_IF_I2C) {
 		ret = is_data_available_for_read(nfc_dev);
 		if (ret <= 0) {
@@ -875,15 +894,25 @@ int nfcc_hw_check(struct nfc_dev *nfc_dev)
 			goto err_nfcc_hw_check;
 		}
 	}
+#else
+	/* hardware dependent delay */
+	msleep(60);
+#endif
 
 	/* Read Response of RESET command */
 	ret = nfc_dev->nfc_read(nfc_dev, nci_reset_rsp, NCI_RESET_RSP_LEN);
 	if (ret <= 0) {
 		pr_err("%s: - nfc rst rsp read err %d\n", __func__,
 					ret);
+#ifdef NQ_READ_INT
+		if (nfc_dev->interface == PLATFORM_IF_I2C) {
+			nfc_dev->nfc_disable_intr(nfc_dev);
+		}
+#endif
 		goto err_nfcc_hw_check;
 	}
 
+#ifdef NQ_READ_INT
 	if (nfc_dev->interface == PLATFORM_IF_I2C) {
 		ret = is_data_available_for_read(nfc_dev);
 		if (ret <= 0) {
@@ -893,11 +922,20 @@ int nfcc_hw_check(struct nfc_dev *nfc_dev)
 			goto err_nfcc_hw_check;
 		}
 	}
+#else
+	/* hardware dependent delay */
+	msleep(30);
+#endif
 
 	/* Read Notification of RESET command */
 	ret = nfc_dev->nfc_read(nfc_dev, nci_reset_ntf, NCI_RESET_NTF_LEN);
 	if (ret <= 0) {
 		pr_err("%s: nfc nfc read error %d\n", __func__, ret);
+#ifdef NQ_READ_INT
+		if (nfc_dev->interface == PLATFORM_IF_I2C) {
+			nfc_dev->nfc_disable_intr(nfc_dev);
+		}
+#endif
 		goto err_nfcc_hw_check;
 	}
 
