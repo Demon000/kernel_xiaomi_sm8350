@@ -3719,7 +3719,7 @@ static int dwc3_msm_usb_set_role(struct device *dev, enum usb_role role)
 	 * previous role value to allow resetting USB controller and
 	 * PHYs.
 	 */
-	if (mdwc->drd_state != DRD_STATE_UNDEFINED && cur_role == role) {
+	if (cur_role == role) {
 		dbg_log_string("no USB role change");
 		return 0;
 	}
@@ -4912,6 +4912,9 @@ static int dwc3_msm_gadget_vbus_draw(struct dwc3_msm *mdwc, unsigned int mA)
 		return 0;
 
 	dev_info(mdwc->dev, "Avail curr from USB = %u\n", mA);
+
+	if (mA < 100)
+		return 0;
 
 	/* Set max current limit in uA */
 	pval.intval = 1000 * mA;
