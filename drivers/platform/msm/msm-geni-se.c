@@ -1688,6 +1688,10 @@ static int geni_se_iommu_probe(struct device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
+extern bool is_early_cons_enabled;
+#endif
+
 static int geni_se_probe(struct platform_device *pdev)
 {
 	int ret;
@@ -1773,6 +1777,11 @@ static int geni_se_probe(struct platform_device *pdev)
 	 * console UART as dummy consumer of ICC to get rid of this HACK
 	 */
 #if IS_ENABLED(CONFIG_SERIAL_MSM_GENI_CONSOLE)
+#ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
+	if (!is_early_cons_enabled)
+		goto skip_earlycon_init;
+#endif
+
 	geni_se_dev->wrapper_rsc.wrapper_dev = dev;
 	geni_se_dev->wrapper_rsc.ctrl_dev = dev;
 
@@ -1790,6 +1799,10 @@ static int geni_se_probe(struct platform_device *pdev)
 				ret);
 		return ret;
 	}
+
+#ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
+skip_earlycon_init:
+#endif
 #endif
 
 	ret = of_platform_populate(dev->of_node, geni_se_dt_match, NULL, dev);
