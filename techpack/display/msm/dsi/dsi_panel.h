@@ -250,6 +250,9 @@ struct dsi_panel {
 	struct dsi_panel_ops panel_ops;
 
 	bool doze_enabled;
+
+	bool fod_hbm_enabled;
+	int local_hbm_on_1000nit_51_index;
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
