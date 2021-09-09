@@ -250,6 +250,11 @@ struct dsi_panel {
 	struct dsi_panel_ops panel_ops;
 
 	bool doze_enabled;
+
+	bool fod_hbm_enabled;
+	bool fod_hbm_requested;
+	bool fod_ui;
+	int local_hbm_on_1000nit_51_index;
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -373,5 +378,10 @@ int dsi_panel_get_io_resources(struct dsi_panel *panel,
 
 void dsi_panel_calc_dsi_transfer_time(struct dsi_host_common_cfg *config,
 		struct dsi_display_mode *mode, u32 frame_threshold_us);
+
+int dsi_panel_is_fod_hbm_applied(struct dsi_panel *panel);
+int dsi_panel_get_fod_hbm(struct dsi_panel *panel);
+void dsi_panel_apply_requested_fod_hbm(struct dsi_panel *panel);
+void dsi_panel_set_fod_ui(struct dsi_panel *panel, bool status);
 
 #endif /* _DSI_PANEL_H_ */
