@@ -3029,6 +3029,27 @@ static ssize_t fts_grip_area_store(struct device *dev,
 	return count;
 }
 #ifdef FTS_FOD_AREA_REPORT
+static ssize_t fts_fod_status_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	struct fts_ts_info *info = dev_get_drvdata(dev);
+
+	return snprintf(buf, TSP_BUF_SIZE, "%d\n", info->fod_status);
+}
+
+static ssize_t fts_fod_status_store(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	struct fts_ts_info *info = dev_get_drvdata(dev);
+
+	logError(1, " %s %s buf:%c,count:%zu\n", tag, __func__, buf[0], count);
+	sscanf(buf, "%u", &info->fod_status);
+	queue_work(info->event_wq, &info->mode_handler_work);
+	logError(1, " %s %s end\n", tag, __func__);
+
+	return count;
+}
 static ssize_t fts_fod_test_store(struct device *dev,
 				     struct device_attribute *attr,
 				     const char *buf, size_t count)
@@ -3526,6 +3547,8 @@ static struct attribute *fts_attr_group[] = {
 };
 
 #ifdef FTS_FOD_AREA_REPORT
+static DEVICE_ATTR(fod_status, (S_IRUGO | S_IWUSR | S_IWGRP),
+		   fts_fod_status_show, fts_fod_status_store);
 static DEVICE_ATTR(fod_test, (S_IRUGO | S_IWUSR | S_IWGRP), NULL, fts_fod_test_store);
 #endif
 static DEVICE_ATTR(ellipse_data, (S_IRUGO), fts_ellipse_data_show, NULL);
@@ -8359,6 +8382,13 @@ static int fts_probe(struct spi_device *client)
 	info->fod_status = -1;
 #endif
 	info->fod_icon_status = 1;
+	error =
+	    sysfs_create_file(&info->fts_touch_dev->kobj,
+			      &dev_attr_fod_status.attr);
+	if (error) {
+		logError(1, "%s ERROR: Failed to create fod_status sysfs group!\n", tag);
+	}
+
 	error =
 	    sysfs_create_file(&info->fts_touch_dev->kobj,
 			      &dev_attr_fod_test.attr);
