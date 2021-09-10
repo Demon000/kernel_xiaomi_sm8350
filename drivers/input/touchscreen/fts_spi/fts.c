@@ -3755,7 +3755,6 @@ static void fts_enter_pointer_event_handler(struct fts_ts_info *info,
 				input_report_abs(info->input_dev, ABS_MT_WIDTH_MINOR, info->fod_overlap);
 				if (!info->board->support_fod)
 					input_report_key(info->input_dev, BTN_INFO, 1);
-				logError(1,	"%s  %s :  FOD Press :%d, fod_id:%08x\n", tag, __func__, touchId, info->fod_id);
 			}
 		} else if (__test_and_clear_bit(touchId, &info->fod_id)) {
 			input_report_abs(info->input_dev, ABS_MT_WIDTH_MINOR, 0);
@@ -3763,7 +3762,6 @@ static void fts_enter_pointer_event_handler(struct fts_ts_info *info,
 			info->fod_x = 0;
 			info->fod_y = 0;
 			info->fod_coordinate_update = false;
-			logError(1, "%s  %s :  FOD Release :%d\n", tag, __func__, touchId);
 			__clear_bit(touchId, &info->sleep_finger);
 		}
 #endif
@@ -4240,10 +4238,6 @@ static void fts_gesture_event_handler(struct fts_ts_info *info,
 	int y = (event[6] << 8) | (event[5]);
 #endif
 
-	logError(1,
-		 "%s  gesture event data: %02X %02X %02X %02X %02X %02X %02X %02X\n",
-		 tag, event[0], event[1], event[2], event[3], event[4],
-		 event[5], event[6], event[7]);
 	if (event[0] == EVT_ID_USER_REPORT && event[1] == EVT_TYPE_USER_GESTURE) {
 		needCoords = 1;
 #ifdef FTS_FOD_AREA_REPORT
