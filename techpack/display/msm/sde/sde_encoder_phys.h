@@ -532,14 +532,6 @@ void sde_encoder_phys_setup_cdm(struct sde_encoder_phys *phys_enc,
 		struct sde_rect *wb_roi);
 
 /**
- * sde_encoder_helper_get_pp_line_count - pingpong linecount helper function
- * @drm_enc:    Pointer to drm encoder structure
- * @info:       structure used to populate the pp line count information
- */
-void sde_encoder_helper_get_pp_line_count(struct drm_encoder *drm_enc,
-		struct sde_hw_pp_vsync_info *info);
-
-/**
  * sde_encoder_helper_get_transfer_time - get the mdp transfer time in usecs
  * @drm_enc: Pointer to drm encoder structure
  * @transfer_time_us: Pointer to store the output value
