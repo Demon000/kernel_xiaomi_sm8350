@@ -5423,45 +5423,12 @@ static int fts_write_charge_status(int status)
 
 static int fts_get_charging_status()
 {
-#if 0
-	struct power_supply *usb_psy;
-	struct power_supply *dc_psy;
-	union power_supply_propval val;
-	int rc = 0;
-#endif
-#ifdef CONFIG_QGKI_SYSTEM
 	int is_charging = 0;
 	is_charging = !!power_supply_is_system_supplied();
 	if (!is_charging)
 		return NOT_CHARGING;
 	else
 		return CHARGING;
-#else
-	return NOT_CHARGING;
-#endif
-#if 0
-	dc_psy = power_supply_get_by_name("dc");
-	if (dc_psy) {
-		rc = power_supply_get_property(dc_psy, POWER_SUPPLY_PROP_ONLINE, &val);
-		if (rc < 0)
-			logError(1, "%s %s Couldn't get DC online status, rc=%d\n", tag, __func__, rc);
-		else if (val.intval == 1)
-			return WIRELESS_CHARGING;
-	} else {
-		logError(1, "%s %s not found dc psy\n", tag, __func__);
-	}
-	usb_psy = power_supply_get_by_name("usb");
-	if (usb_psy) {
-		rc = power_supply_get_property(usb_psy, POWER_SUPPLY_PROP_PRESENT, &val);
-		if (rc < 0)
-			logError(1, "%s %s Couldn't get usb online status, rc=%d\n", tag, __func__, rc);
-		else if (val.intval == 1)
-			return WIRED_CHARGING;
-	} else {
-		logError(1, "%s %s not found usb psy\n", tag, __func__);
-	}
-	return NOT_CHARGING;
-#endif
 }
 
 static void fts_power_supply_work(struct work_struct *work)
@@ -5742,7 +5709,6 @@ err_pinctrl_get:
 	return retval;
 }
 
-#ifdef CONFIG_QGKI_SYSTEM
 static bool fts_judge_hwid(void)
 {
 	const char *product_name;
@@ -5764,7 +5730,6 @@ static bool fts_judge_hwid(void)
 	}
 	return 0;
 }
-#endif
 
 /**
  * Retrieve and parse the hw information from the device tree node defined in the system.
@@ -5801,9 +5766,8 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 		bdata->vdd_reg_name = name;
 		logError(0, "%s bus_reg_name = %s\n", tag, name);
 	}
-#ifdef CONFIG_QGKI_SYSTEM
+
 	if (fts_judge_hwid()) {
-#endif
 		retval = of_property_read_string(np, "fts,avddold-name", &name);
 		if (retval == -EINVAL)
 			bdata->avddold_name = NULL;
@@ -5813,9 +5777,8 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 			bdata->avddold_name = name;
 			logError(0, "%s avddold_reg_name = %s\n", tag, name);
 		}
-#ifdef CONFIG_QGKI_SYSTEM
 	}
-#endif
+
 	if (of_property_read_bool(np, "fts,reset-gpio-enable")) {
 		bdata->reset_gpio = of_get_named_gpio_flags(np,
 							    "fts,reset-gpio", 0,
