@@ -343,7 +343,6 @@ struct fts_ts_info {
 	unsigned long fod_id;
 	unsigned long fod_x;
 	unsigned long fod_y;
-	struct mutex fod_mutex;
 	struct mutex cmd_update_mutex;
 	bool fod_coordinate_update;
 	bool fod_pressed;
