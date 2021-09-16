@@ -3540,7 +3540,6 @@ static void fts_leave_pointer_event_handler(struct fts_ts_info *info,
 	u8 touchType;
 #ifdef FTS_FOD_AREA_REPORT
 	int x, y;
-	bool fod_up = false;
 #endif
 
 #ifdef FTS_FOD_AREA_REPORT
@@ -3558,7 +3557,6 @@ static void fts_leave_pointer_event_handler(struct fts_ts_info *info,
 		/* if touch_id is 0, this is said this is from aod, so we should clear info->fod_id */
 		else
 			__clear_bit(touchId, &info->fod_id);
-		fod_up = true;
 	} else {
 #endif
 		touchType = event[1] & 0x0F;
@@ -3627,16 +3625,6 @@ static void fts_leave_pointer_event_handler(struct fts_ts_info *info,
 	}
 	info->last_x[touchId] = info->last_y[touchId] = 0;
 	input_report_abs(info->input_dev, ABS_MT_TRACKING_ID, -1);
-	if (fod_up)
-		logError(1,
-			"%s  %s :  Event FOD - release ID[%d] type = %d\n", tag,
-			__func__, touchId, touchType);
-	else {
-		logError(1,
-			"%s  %s :  Event 0x%02x - release ID[%d] type = %d\n", tag,
-			__func__, event[0], touchId, touchType);
-	}
-
 	input_sync(info->input_dev);
 exit:
 	return;
