@@ -2514,7 +2514,7 @@ static void fts_get_strength_timer(struct timer_list *t)
 	struct fts_ts_info *info = from_timer(info, t, strength_timer);
 
 	if (info->enable_touch_raw) {
-		schedule_work(&info->strength_work);
+		queue_work(fts_info->event_wq, &info->strength_work);
 	}
 	/*
 	if (info->enable_touch_raw && !info->sensor_sleep)
@@ -6054,14 +6054,14 @@ static int fts_set_cur_value(int mode, int value)
 		return fts_set_aod_status(value);
 	if (mode == Touch_Doubletap_Mode && fts_info && value >= 0) {
 		fts_info->gesture_enabled = value;
-		schedule_work(&fts_info->switch_mode_work);
+		queue_work(fts_info->event_wq, &fts_info->switch_mode_work);
 		return 0;
 	}
 	if (mode == Touch_FodIcon_Enable && fts_info && value >= 0)
 		return fts_set_fod_icon_status(value);
 	if (mode == Touch_Nonui_Mode && fts_info && value >= 0) {
 		fts_info->nonui_status = value;
-		schedule_work(&fts_info->switch_mode_work);
+		queue_work(fts_info->event_wq, &fts_info->switch_mode_work);
 		return 0;
 	}
 
@@ -6177,7 +6177,7 @@ static int fts_set_mode_long_value(int mode, int len, int *buf)
 			logError(1, "%s %s in gamemode, don't write parameters to touch ic\n", tag, __func__);
 			return 0;
 		} else
-			schedule_work(&fts_info->grip_mode_work);
+			queue_work(fts_info->event_wq, &fts_info->grip_mode_work);
 	}
 	return 0;
 }
