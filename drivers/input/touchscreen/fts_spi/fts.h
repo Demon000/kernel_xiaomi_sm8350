@@ -321,7 +321,6 @@ struct fts_ts_info {
 	int fwupdate_stat;
 
 	struct notifier_block notifier;
-	struct notifier_block bl_notifier;
 	bool sensor_sleep;
 	bool sensor_scan;
 	struct pinctrl *ts_pinctrl;

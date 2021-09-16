@@ -5334,49 +5334,7 @@ static int fts_drm_state_chg_callback(struct notifier_block *nb,
 static struct notifier_block fts_noti_block = {
 	.notifier_call = fts_drm_state_chg_callback,
 };
-#ifdef CONFIG_FTS_BL_CB
-static int fts_bl_state_chg_callback(struct notifier_block *nb,
-				      unsigned long val, void *data)
-{
-	struct fts_ts_info *info = container_of(nb, struct fts_ts_info, bl_notifier);
-	unsigned int blank;
-	int ret;
 
-	if (val != BACKLIGHT_UPDATED)
-		return NOTIFY_OK;
-	if (data && info) {
-		blank = *(int *)(data);
-		logError(1, "%s %s: val:%lu,blank:%u\n", tag, __func__, val, blank);
-		flush_workqueue(info->event_wq);
-		if (blank == BACKLIGHT_OFF && (!info->sensor_sleep && !info->touch_id)) {
-			if (info->sensor_sleep)
-				return NOTIFY_OK;
-			logError(1, "%s %s: BL_EVENT_BLANK\n", tag, __func__);
-			ret = fts_disableInterrupt();
-			setScanMode(SCAN_MODE_ACTIVE, 0x00);
-			info->sensor_scan = false;
-			flushFIFO();
-			release_all_touches(info);
-			if (ret < OK)
-				logError(1, "%s fts_disableInterrupt Error %08X\n", tag, ret | ERROR_ENABLE_INTER);
-		} else if (blank == BACKLIGHT_ON) {
-			logError(1, "%s %s: BL_EVENT_UNBLANK\n", tag, __func__);
-			if (!info->sensor_sleep) {
-				ret = fts_enableInterrupt();
-				if (ret < OK)
-					logError(1, "%s fts_enableInterrupt Error %08X\n", tag, ret | ERROR_ENABLE_INTER);
-			if (!info->sensor_scan)
-				setScanMode(SCAN_MODE_ACTIVE, 0x01);
-			}
-		}
-	}
-	return NOTIFY_OK;
-}
-
-static struct notifier_block fts_bl_noti_block = {
-	.notifier_call = fts_bl_state_chg_callback,
-};
-#endif
 #ifdef CONFIG_FTS_POWERSUPPLY_CB
 static int fts_write_charge_status(int status)
 {
@@ -6724,9 +6682,6 @@ static int fts_probe(struct spi_device *client)
 	power_supply_reg_notifier(&info->power_supply_notifier);
 #endif
 	mutex_init(&info->charge_lock);
-#ifdef CONFIG_FTS_BL_CB
-	info->bl_notifier = fts_bl_noti_block;
-#endif
 	logError(0, "%s Init Core Lib: \n", tag);
 	initCore(info);
 	/* init hardware device */
@@ -6831,11 +6786,6 @@ static int fts_probe(struct spi_device *client)
 
 	device_init_wakeup(&client->dev, 1);
 	init_completion(&info->pm_resume_completion);
-#ifdef CONFIG_FTS_BL_CB
-	if (backlight_register_notifier(&info->bl_notifier) < 0) {
-		logError(1, "%s register bl_notifier failed!\n", tag);
-	}
-#endif
 
 #ifdef FTS_DEBUG_FS
 	info->debugfs = debugfs_create_dir("tp_debug", NULL);
@@ -7009,9 +6959,7 @@ static int fts_remove(struct spi_device *client)
 	sysfs_remove_group(&client->dev.kobj, &info->attrs);
 	/* remove interrupt and event handlers */
 	fts_interrupt_uninstall(info);
-#ifdef CONFIG_FTS_BL_CB
-	backlight_unregister_notifier(&info->bl_notifier);
-#endif
+
 	mi_disp_unregister_client(&info->notifier);
 
 	/* unregister the device */
