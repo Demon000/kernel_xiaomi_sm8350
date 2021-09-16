@@ -351,14 +351,11 @@ struct fts_ts_info {
 	int aod_status;
 	bool tp_pm_suspend;
 	struct completion pm_resume_completion;
-	bool gamemode_enable;
 	int width_major;
 	int width_minor;
 	int orientation;
 	int last_x[TOUCH_ID_MAX];
 	int last_y[TOUCH_ID_MAX];
-	struct work_struct switch_mode_work;
-	struct work_struct grip_mode_work;
 	struct delayed_work power_supply_work;
 	int charging_status;
 	struct notifier_block power_supply_notifier;
