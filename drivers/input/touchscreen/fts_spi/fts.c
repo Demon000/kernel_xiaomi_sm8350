@@ -4542,9 +4542,6 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 #endif
 	u8 doubletap_cmd[6] = {0xA2, 0x03, 0x20, 0x00, 0x00, 0x00};
 
-#ifdef FTS_FOD_AREA_REPORT
-	mutex_lock(&info->fod_mutex);
-#endif
 	info->mode = MODE_NOTHING;
 	logError(0, "%s %s: Mode Handler starting... \n", tag, __func__);
 	switch (info->resume_bit) {
@@ -4727,9 +4724,7 @@ static int fts_mode_handler(struct fts_ts_info *info, int force)
 
 	logError(0, "%s %s: Mode Handler finished! res = %08X mode = %08X \n",
 		 tag, __func__, res, info->mode);
-#ifdef FTS_FOD_AREA_REPORT
-	mutex_unlock(&info->fod_mutex);
-#endif
+
 	return res;
 
 }
@@ -6243,7 +6238,6 @@ static int fts_probe(struct spi_device *client)
 
 	dev_set_drvdata(info->fts_touch_dev, info);
 #ifdef FTS_FOD_AREA_REPORT
-	mutex_init(&(info->fod_mutex));
 	info->fod_status = -1;
 	info->fod_icon_status = 1;
 	error = sysfs_create_file(&info->fts_touch_dev->kobj, &dev_attr_fod_status.attr);
