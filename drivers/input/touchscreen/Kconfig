@@ -1327,7 +1327,6 @@ config TOUCHSCREEN_SYNAPTICS_TCM
 	  module will be called synaptics_tcm.
 
 source "drivers/input/touchscreen/synaptics_tcm/Kconfig"
-source "drivers/input/touchscreen/xiaomi/Kconfig"
 source "drivers/input/touchscreen/fts_spi/Kconfig"
 
 config TOUCHSCREEN_SYNAPTICS_DSX
