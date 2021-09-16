@@ -4776,7 +4776,6 @@ static int fts_drm_state_chg_callback(struct notifier_block *nb,
 			logError(1, "%s %s: FB_BLANK %s\n", tag,
 				 __func__, blank == MI_DISP_DPMS_POWERDOWN ? "POWER DOWN" : "LP");
 
-			flush_workqueue(info->event_wq);
 			queue_work(info->event_wq, &info->suspend_work);
 		} else if (val == MI_DISP_DPMS_EVENT && blank == MI_DISP_DPMS_ON) {
 			if (!info->sensor_sleep)
@@ -4785,7 +4784,6 @@ static int fts_drm_state_chg_callback(struct notifier_block *nb,
 			logError(1, "%s %s: FB_BLANK_UNBLANK\n", tag,
 				 __func__);
 
-			flush_workqueue(info->event_wq);
 			queue_work(info->event_wq, &info->resume_work);
 		}
 	}
