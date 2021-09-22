@@ -3840,7 +3840,6 @@ static void fts_ts_sleep_work(struct work_struct *work)
 		}
 	}
 
-	info->irq_status = true;
 	error = fts_writeReadU8UX(regAdd, 0, 0, data, FIFO_EVENT_SIZE,
 				  DUMMY_FIFO);
 	events_remaining = data[EVENTS_REMAINING_POS] & EVENTS_REMAINING_MASK;
@@ -3882,7 +3881,6 @@ static void fts_ts_sleep_work(struct work_struct *work)
 		}
 	}
 
-	info->irq_status = false;
 	pm_relax(info->dev);
 	fts_enableInterrupt();
 
@@ -3919,7 +3917,7 @@ static irqreturn_t fts_event_handler(int irq, void *ts_info)
 	}
 
 	pm_stay_awake(info->dev);
-	info->irq_status = true;
+
 	error = fts_writeReadU8UX(regAdd, 0, 0, data, FIFO_EVENT_SIZE,
 				  DUMMY_FIFO);
 	events_remaining = data[EVENTS_REMAINING_POS] & EVENTS_REMAINING_MASK;
@@ -3962,7 +3960,6 @@ static irqreturn_t fts_event_handler(int irq, void *ts_info)
 	}
 
 /*end:*/
-	info->irq_status = false;
 	pm_relax(info->dev);
 	return IRQ_HANDLED;
 }
