@@ -327,32 +327,6 @@ setup_fifo_params_exit:
 	return ret;
 }
 
-
-static int select_xfer_mode(struct spi_master *spi,
-				struct spi_message *spi_msg)
-{
-	struct spi_geni_master *mas = spi_master_get_devdata(spi);
-	int mode = SE_DMA;
-	int fifo_disable = (geni_read_reg(mas->base, GENI_IF_FIFO_DISABLE_RO) &
-							FIFO_IF_DISABLE);
-	bool dma_chan_valid =
-		!(IS_ERR_OR_NULL(mas->tx) || IS_ERR_OR_NULL(mas->rx));
-
-	/*
-	 * If FIFO Interface is disabled and there are no DMA channels then we
-	 * can't do this transfer.
-	 * If FIFO interface is disabled, we can do GSI only,
-	 * else pick FIFO mode.
-	 */
-	if (fifo_disable && !dma_chan_valid)
-		mode = -EINVAL;
-	else if (!fifo_disable)
-		mode = SE_DMA;
-	else if (dma_chan_valid)
-		mode = GSI_DMA;
-	return mode;
-}
-
 static struct msm_gpi_tre *setup_lock_tre(struct spi_geni_master *mas)
 {
 	struct msm_gpi_tre *lock_t = &mas->gsi_lock_unlock->lock_t;
@@ -905,6 +879,7 @@ static int spi_geni_prepare_message(struct spi_master *spi,
 {
 	int ret = 0;
 	struct spi_geni_master *mas = spi_master_get_devdata(spi);
+	int old_xfer_mode = mas->cur_xfer_mode;
 	int count;
 
 	if (mas->shared_ee) {
@@ -941,21 +916,19 @@ static int spi_geni_prepare_message(struct spi_master *spi,
 		}
 	}
 
-	mas->cur_xfer_mode = select_xfer_mode(spi, spi_msg);
+	old_xfer_mode = mas->cur_xfer_mode;
+	if (mas->gsi_mode)
+		mas->cur_xfer_mode = GSI_DMA;
+	else
+		mas->cur_xfer_mode = FIFO_MODE;
 
-	if (mas->cur_xfer_mode < 0) {
-		dev_err(mas->dev, "%s: Couldn't select mode %d\n", __func__,
-							mas->cur_xfer_mode);
-		ret = -EINVAL;
-	} else if (mas->cur_xfer_mode == GSI_DMA) {
-		memset(mas->gsi, 0,
-				(sizeof(struct spi_geni_gsi) * NUM_SPI_XFER));
-		geni_se_select_mode(mas->base, GSI_DMA);
-		ret = spi_geni_map_buf(mas, spi_msg);
-	} else {
+	if (old_xfer_mode != mas->cur_xfer_mode)
 		geni_se_select_mode(mas->base, mas->cur_xfer_mode);
+
+	if (mas->cur_xfer_mode == GSI_DMA)
+		ret = spi_geni_map_buf(mas, spi_msg);
+	else if (mas->cur_xfer_mode == FIFO_MODE)
 		ret = setup_fifo_params(spi_msg->spi, spi);
-	}
 
 exit_prepare_message:
 	return ret;
@@ -1345,10 +1318,10 @@ static int setup_fifo_xfer(struct spi_transfer *xfer,
 	 * mode for transfers or select the mode dynamically based on
 	 * size of data.
 	 */
-	mas->cur_xfer_mode = SE_DMA;
-	if (mas->disable_dma || trans_len <= fifo_size)
-		mas->cur_xfer_mode = FIFO_MODE;
-	geni_se_select_mode(mas->base, mas->cur_xfer_mode);
+	if (!mas->disable_dma && trans_len > fifo_size) {
+		mas->cur_xfer_mode = SE_DMA;
+		geni_se_select_mode(mas->base, mas->cur_xfer_mode);
+	}
 
 	geni_write_reg(spi_tx_cfg, mas->base, SE_SPI_TRANS_CFG);
 	geni_setup_m_cmd(mas->base, m_cmd, m_param);
