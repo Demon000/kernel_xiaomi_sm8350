@@ -337,7 +337,6 @@ struct fts_ts_info {
 	struct fts_dma_buf *dma_buf;
 #endif
 	bool lockdown_is_ok;
-	bool irq_status;
 	int fod_status;
 	unsigned int fod_overlap;
 	unsigned long fod_id;
