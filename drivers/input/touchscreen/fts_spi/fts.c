@@ -3881,7 +3881,7 @@ static void fts_ts_sleep_work(struct work_struct *work)
 			}
 		}
 	}
-	input_sync(info->input_dev);
+
 	info->irq_status = false;
 	pm_relax(info->dev);
 	fts_enableInterrupt();
@@ -3960,7 +3960,7 @@ static irqreturn_t fts_event_handler(int irq, void *ts_info)
 			}
 		}
 	}
-	input_sync(info->input_dev);
+
 /*end:*/
 	info->irq_status = false;
 	pm_relax(info->dev);
