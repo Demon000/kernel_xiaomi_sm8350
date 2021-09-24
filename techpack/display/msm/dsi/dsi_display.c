@@ -9,6 +9,7 @@
 #include <linux/err.h>
 
 #include <drm/mi_disp_notifier.h>
+#include <drm/dsi_display_fod.h>
 
 #include "msm_drv.h"
 #include "sde_connector.h"
@@ -36,6 +37,8 @@
 
 #define DSI_CLOCK_BITRATE_RADIX 10
 #define MAX_TE_SOURCE_ID  2
+
+struct dsi_display *primary_display;
 
 static char dsi_display_primary[MAX_CMDLINE_PARAM_LEN];
 static char dsi_display_secondary[MAX_CMDLINE_PARAM_LEN];
@@ -5722,6 +5725,17 @@ static void dsi_display_firmware_display(const struct firmware *fw,
 	DSI_DEBUG("success\n");
 }
 
+static struct dsi_display *dsi_display_get_primary(void) {
+	return primary_display;
+}
+
+void dsi_display_primary_request_fod_hbm(bool status)
+{
+	struct dsi_display *display = dsi_display_get_primary();
+	dsi_panel_request_fod_hbm(display->panel, status);
+}
+EXPORT_SYMBOL(dsi_display_primary_request_fod_hbm);
+
 int dsi_display_dev_probe(struct platform_device *pdev)
 {
 	struct dsi_display *display = NULL;
@@ -5813,6 +5827,8 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 		if (rc)
 			goto end;
 	}
+
+	primary_display = display;
 
 	return 0;
 end:
