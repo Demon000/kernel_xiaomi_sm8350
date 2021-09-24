@@ -270,6 +270,8 @@ struct dsi_panel {
 	bool doze_enabled;
 
 	bool fod_hbm_enabled;
+	bool fod_hbm_requested;
+	bool fod_ui;
 	int local_hbm_on_1000nit_51_index;
 };
 
@@ -406,4 +408,10 @@ int dsi_panel_create_cmd_packets(const char *data, u32 length, u32 count,
 void dsi_panel_destroy_cmd_packets(struct dsi_panel_cmd_set *set);
 
 void dsi_panel_dealloc_cmd_packets(struct dsi_panel_cmd_set *set);
+
+int dsi_panel_is_fod_hbm_applied(struct dsi_panel *panel);
+int dsi_panel_get_fod_hbm(struct dsi_panel *panel);
+void dsi_panel_apply_requested_fod_hbm(struct dsi_panel *panel);
+void dsi_panel_set_fod_ui(struct dsi_panel *panel, bool status);
+
 #endif /* _DSI_PANEL_H_ */

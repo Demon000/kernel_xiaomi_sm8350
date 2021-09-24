@@ -704,7 +704,7 @@ static int dsi_panel_update_cmd_reg51(struct dsi_panel *panel, enum dsi_cmd_set_
 	return 0;
 }
 
-int dsi_panel_set_fod_hbm(struct dsi_panel *panel, bool status)
+static int dsi_panel_set_fod_hbm(struct dsi_panel *panel, bool status)
 {
 	int rc = 0;
 
@@ -743,6 +743,31 @@ int dsi_panel_set_fod_hbm(struct dsi_panel *panel, bool status)
 	}
 
 	return rc;
+}
+
+int dsi_panel_is_fod_hbm_applied(struct dsi_panel *panel)
+{
+	bool value;
+	mutex_lock(&panel->panel_lock);
+	value = panel->fod_hbm_requested == panel->fod_hbm_enabled;
+	mutex_unlock(&panel->panel_lock);
+	return value;
+}
+
+int dsi_panel_get_fod_hbm(struct dsi_panel *panel)
+{
+	bool value;
+	mutex_lock(&panel->panel_lock);
+	value = panel->fod_hbm_enabled;
+	mutex_unlock(&panel->panel_lock);
+	return value;
+}
+
+void dsi_panel_apply_requested_fod_hbm(struct dsi_panel *panel)
+{
+	mutex_lock(&panel->panel_lock);
+	dsi_panel_set_fod_hbm(panel, panel->fod_hbm_requested);
+	mutex_unlock(&panel->panel_lock);
 }
 
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
@@ -3647,7 +3672,7 @@ static ssize_t sysfs_fod_hbm_write(struct device *dev, struct device_attribute *
 	if (!panel->panel_initialized)
 		goto exit;
 
-	dsi_panel_set_fod_hbm(panel, status);
+	panel->fod_hbm_requested = status;
 
 exit:
 	mutex_unlock(&panel->panel_lock);
@@ -3655,15 +3680,48 @@ exit:
 	return count;
 }
 
+static ssize_t sysfs_fod_ui_read(struct device *dev, struct device_attribute *attr,
+				 char *buf)
+{
+	struct dsi_display *display;
+	struct dsi_panel *panel;
+	bool status;
+
+	display = dev_get_drvdata(dev);
+	if (!display) {
+		pr_err("Invalid display\n");
+		return -EINVAL;
+	}
+
+	panel = display->panel;
+
+	mutex_lock(&panel->panel_lock);
+	status = panel->fod_ui;
+	mutex_unlock(&panel->panel_lock);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", status);
+}
+
 static DEVICE_ATTR(fod_hbm, 0200, NULL, sysfs_fod_hbm_write);
+static DEVICE_ATTR(fod_ui, 0400, sysfs_fod_ui_read, NULL);
 
 static struct attribute *panel_attrs[] = {
 	&dev_attr_fod_hbm.attr,
+	&dev_attr_fod_ui.attr,
 	NULL,
 };
 static struct attribute_group panel_attrs_group = {
 	.attrs = panel_attrs,
 };
+
+void dsi_panel_set_fod_ui(struct dsi_panel *panel, bool status)
+{
+	mutex_lock(&panel->panel_lock);
+	panel->fod_ui = status;
+	mutex_unlock(&panel->panel_lock);
+
+	sysfs_notify(&panel->parent->kobj, NULL, "fod_ui");
+}
 
 static int dsi_panel_sysfs_init(struct dsi_panel *panel)
 {
@@ -3813,7 +3871,9 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	panel->drm_panel.dev = &panel->mipi_device.dev;
 	panel->mipi_device.dev.of_node = of_node;
 	panel->doze_enabled = false;
+	panel->fod_ui = false;
 	panel->fod_hbm_enabled = false;
+	panel->fod_hbm_requested = false;
 
 	rc = drm_panel_add(&panel->drm_panel);
 	if (rc)
