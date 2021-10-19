@@ -5757,12 +5757,9 @@ static int get_ec_ref_port_id(int value, int *index)
 	case 39:
 		*index = 39;
 		port_id = AFE_PORT_ID_QUINARY_TDM_TX;
+		break;
 	case 40:
 		*index = 40;
-		port_id = AFE_PORT_ID_TERTIARY_TDM_RX;
-		break;
-	case 41:
-		*index = 41;
 		port_id = AFE_PORT_ID_SENARY_MI2S_TX;
 		break;
 	case 41:
