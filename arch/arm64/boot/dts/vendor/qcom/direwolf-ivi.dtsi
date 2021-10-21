@@ -1,0 +1,8 @@
+#include "direwolf.dtsi"
+#include "direwolf-ivi-regulators.dtsi"
+
+/ {
+	model = "Qualcomm Technologies, Inc. DirewolfAU IVI SoC";
+	compatible = "qcom,direwolf-ivi", "qcom,direwolf";
+	qcom,msm-id = <460 0x10000>;
+};
