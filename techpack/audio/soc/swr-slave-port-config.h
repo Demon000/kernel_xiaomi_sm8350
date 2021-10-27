@@ -80,16 +80,11 @@ static struct port_params tx_top_mic_9p6MHz[SWR_MSTR_PORT_LEN] = {
 	{7,  5,  0,  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0x00, 0x00}, /* TX2 */
 };
 
-/* The 4.8MHZ port config is used in
- * 1. single mic standalone in "high power" mode
- * 2. dual mic standalone in "high power" mode
- * 3. sva standalone single/dual/tri/quad in "low-power" mode
- * 4. sva single/dmic in "low-power" + single mic in "high power" concurrency
- */
+/* 4 Channel configuration */
 /* SWR DMIC0 */
 static struct port_params tx_bottom_mic_4p8MHz[SWR_MSTR_PORT_LEN] = {
 	{3,  2,  0,  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0x00, 0x00}, /* TX1 */
-	{15,  4,  0,  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0x00, 0x00}, /* TX2 */
+	{7,  5,  0,  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0x00, 0x00}, /* TX2 */
 };
 
 /* SWR DMIC1 */
@@ -107,7 +102,7 @@ static struct port_params tx_back_mic_4p8MHz[SWR_MSTR_PORT_LEN] = {
 /* SWR DMIC3 */
 static struct port_params tx_top_mic_4p8MHz[SWR_MSTR_PORT_LEN] = {
 	{3,  1,  0,  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0x00, 0x00}, /* TX1 */
-	{15,  3,  0,  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0x00, 0x00}, /* TX2 */
+	{7,  4,  0,  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0x00, 0x00}, /* TX2 */
 };
 
 /* 1 Channel configuration */
