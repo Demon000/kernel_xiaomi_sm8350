@@ -977,7 +977,6 @@ gen_headers_out_arm64 = [
     "audio/linux/msm_audio_wmapro.h",
     "audio/linux/wcd-spi-ac-params.h",
     "audio/sound/audio_effects.h",
-    "audio/sound/msm-cirrus-playback.h",
     "audio/sound/audio_slimslave.h",
     "audio/sound/devdep_params.h",
     "audio/sound/lsm_params.h",
