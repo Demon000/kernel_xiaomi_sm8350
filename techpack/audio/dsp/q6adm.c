@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  */
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -43,7 +43,6 @@
 #endif
 
 #define SESSION_TYPE_RX 0
-#define COPP_VOL_DEFAULT 0x2000
 
 /* ENUM for adm_status */
 enum adm_cal_status {
@@ -112,8 +111,6 @@ struct adm_ctl {
 	uint32_t copp_token;
 	int tx_port_id;
 	bool hyp_assigned;
-	int fnn_app_type;
-	bool is_channel_swapped;
 };
 
 static struct adm_ctl			this_adm;
@@ -291,7 +288,7 @@ static int adm_get_copp_id(int port_idx, int copp_idx)
 }
 
 static int adm_get_idx_if_single_copp_exists(int port_idx,
-			int topology,
+			int topology, int mode,
 			int rate, int bit_width,
 			uint32_t copp_token)
 {
@@ -302,6 +299,8 @@ static int adm_get_idx_if_single_copp_exists(int port_idx,
 	for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++)
 		if ((topology ==
 			atomic_read(&this_adm.copp.topology[port_idx][idx])) &&
+			(mode ==
+			 atomic_read(&this_adm.copp.mode[port_idx][idx])) &&
 			(rate ==
 			 atomic_read(&this_adm.copp.rate[port_idx][idx])) &&
 			(bit_width ==
@@ -323,7 +322,7 @@ static int adm_get_idx_if_copp_exists(int port_idx, int topology, int mode,
 
 	if (copp_token)
 		return adm_get_idx_if_single_copp_exists(port_idx,
-				topology,
+				topology, mode,
 				rate, bit_width,
 				copp_token);
 
@@ -549,6 +548,16 @@ int adm_programable_channel_mixer(int port_id, int copp_idx, int session_id,
 	if (port_idx < 0) {
 		pr_err("%s: Invalid port_id %#x\n", __func__, port_id);
 		return -EINVAL;
+	}
+
+	/*
+	 * check if PSPD is already configured
+	 * if it is configured already, return 0 without applying PSPD.
+	 */
+	if (atomic_read(&this_adm.copp.cnt[port_idx][copp_idx]) > 1) {
+		pr_debug("%s: copp.cnt:%#x\n", __func__,
+			atomic_read(&this_adm.copp.cnt[port_idx][copp_idx]));
+		return 0;
 	}
 
 	/*
@@ -2435,7 +2444,6 @@ static void send_adm_cal_type(int cal_index, int path, int port_id,
 		}
 		this_adm.tx_port_id = port_id;
 		this_adm.hyp_assigned = true;
-		this_adm.fnn_app_type = app_type;
 		pr_debug("%s: hyp_assign_phys success in tx_port_id 0x%x\n",
 			 __func__, this_adm.tx_port_id);
 	}
@@ -3211,8 +3219,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 	}
 
 	if ((topology == VPM_TX_SM_ECNS_V2_COPP_TOPOLOGY) ||
-	    (topology == VPM_TX_DM_FLUENCE_EF_COPP_TOPOLOGY) ||
-	    (topology == VPM_TX_VOICE_FLUENCE_NN_COPP_TOPOLOGY)) {
+	    (topology == VPM_TX_DM_FLUENCE_EF_COPP_TOPOLOGY)) {
 		if ((rate != ADM_CMD_COPP_OPEN_SAMPLE_RATE_8K) &&
 		    (rate != ADM_CMD_COPP_OPEN_SAMPLE_RATE_16K) &&
 		    (rate != ADM_CMD_COPP_OPEN_SAMPLE_RATE_32K) &&
@@ -3235,7 +3242,6 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 
 	if (topology == VPM_TX_VOICE_SMECNS_V2_COPP_TOPOLOGY ||
 	    topology == VPM_TX_VOICE_FLUENCE_SM_COPP_TOPOLOGY ||
-	    topology == VPM_TX_VOICE_FLUENCE_NN_COPP_TOPOLOGY ||
 	    topology == AUDIO_RX_MONO_VOIP_COPP_TOPOLOGY)
 		channel_mode = 1;
 
@@ -3972,14 +3978,13 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 {
 	struct apr_hdr close;
 
-	int ret = 0, port_idx, app_type;
+	int ret = 0, port_idx;
 	int copp_id = RESET_COPP_ID;
 	bool result = false;
 	int dest_perms[1] = {PERM_READ | PERM_WRITE | PERM_EXEC};
 	int source_vm[2] = {VMID_LPASS, VMID_ADSP_HEAP};
 	int dest_vm[1] = {VMID_HLOS};
 	struct cal_block_data *cal_block = NULL;
-	struct audio_cal_info_audproc *audproc_cal_info = NULL;
 	int cal_index = ADM_AUDPROC_PERSISTENT_CAL;
 
 	int usb_copp_id = RESET_COPP_ID;
@@ -4003,7 +4008,6 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 	}
 
 	port_channel_map[port_idx].set_channel_map = false;
-	app_type = atomic_read(&this_adm.copp.app_type[port_idx][copp_idx]);
 	if (this_adm.copp.adm_delay[port_idx][copp_idx] && perf_mode
 		== LEGACY_PCM_MODE) {
 		atomic_set(&this_adm.copp.adm_delay_stat[port_idx][copp_idx],
@@ -4144,12 +4148,7 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 					pr_debug("%s: cma_alloc %d\n",
 						 __func__, cal_block->cma_mem);
 				}
-				if (result && app_type == 0) {
-					audproc_cal_info = cal_block->cal_info;
-					app_type = audproc_cal_info->app_type;
-				}
-
-				if (result && this_adm.fnn_app_type == app_type) {
+				if (result) {
 					pr_debug("%s: use hyp assigned %d, use buffer %d\n",
 						 __func__, this_adm.hyp_assigned,
 						cal_block->buffer_number);
@@ -4161,20 +4160,6 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 								__func__);
 							ret = -EINVAL;
 							goto fail;
-						}
-						/**
-						 *  call unmap CMA before hyp unassign during
-						 *  end of handset/speaker usecase.
-						 */
-						if (cal_block->map_data.q6map_handle != 0) {
-							atomic_set(&this_adm.mem_map_handles[cal_index],
-									cal_block->map_data.q6map_handle);
-							atomic_set(&this_adm.mem_map_index, cal_index);
-							ret = adm_memory_unmap_regions();
-							if (ret < 0)
-								pr_err("%s: unmap did not work! cal_type %i ret %d\n",
-										__func__, cal_index, ret);
-							cal_block->map_data.q6map_handle = 0;
 						}
 						ret = hyp_assign_phys(
 							cal_block->cal_data.paddr,
@@ -4234,12 +4219,8 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 			pr_debug("%s: cma_alloc %d\n",
 				 __func__, cal_block->cma_mem);
 		}
-		if (result && app_type == 0) {
-			audproc_cal_info = cal_block->cal_info;
-			app_type = audproc_cal_info->app_type;
-		}
 
-		if (result && this_adm.fnn_app_type == app_type) {
+		if (result) {
 			pr_debug("%s: use hyp assigned %d, use buffer %d\n",
 				  __func__, this_adm.hyp_assigned,
 				  cal_block->buffer_number);
@@ -4250,17 +4231,6 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 						__func__);
 					ret = -EINVAL;
 					goto fail;
-				}
-				/* call unmap CMA before hyp unassign during end of handset/speaker usecase */
-				if (cal_block->map_data.q6map_handle != 0) {
-					atomic_set(&this_adm.mem_map_handles[cal_index],
-							cal_block->map_data.q6map_handle);
-					atomic_set(&this_adm.mem_map_index, cal_index);
-					ret = adm_memory_unmap_regions();
-					if (ret < 0)
-						pr_err("%s: unmap did not work! cal_type %i ret %d\n",
-								__func__, cal_index, ret);
-					cal_block->map_data.q6map_handle = 0;
 				}
 				ret = hyp_assign_phys(cal_block->cal_data.paddr,
 						cal_block->map_data.map_size,
@@ -5459,13 +5429,6 @@ int adm_swap_speaker_channels(int port_id, int copp_idx,
 			(uint16_t) PCM_CHANNEL_FR;
 	}
 
-	if(spk_swap || this_adm.is_channel_swapped) {
-		/* Before applying swap channel, mute the device to avoid pop */
-		ret = adm_set_volume(port_id, copp_idx, 0);
-		/* Add delay after mute as per hw requirement */
-		msleep(50);
-	}
-
 	ret = adm_pack_and_set_one_pp_param(port_id, copp_idx, param_hdr,
 					    (u8 *) &mfc_cfg);
 	if (ret < 0) {
@@ -5473,12 +5436,6 @@ int adm_swap_speaker_channels(int port_id, int copp_idx,
 		       __func__, port_id, ret);
 		return ret;
 	}
-
-	if(spk_swap || this_adm.is_channel_swapped) {
-		/* After applying swap channel, reset to default */
-		ret = adm_set_volume(port_id, copp_idx, COPP_VOL_DEFAULT);
-	}
-	this_adm.is_channel_swapped = spk_swap;
 
 	pr_debug("%s: mfc_cfg Set params returned success", __func__);
 	return 0;
@@ -5860,8 +5817,6 @@ int __init adm_init(void)
 	this_adm.ffecns_port_id = -1;
 	this_adm.tx_port_id = -1;
 	this_adm.hyp_assigned = false;
-	this_adm.fnn_app_type = -1;
-	this_adm.is_channel_swapped = false;
 	init_waitqueue_head(&this_adm.matrix_map_wait);
 	init_waitqueue_head(&this_adm.adm_wait);
 

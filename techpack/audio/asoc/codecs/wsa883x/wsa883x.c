@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2015-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -104,8 +104,8 @@ static const struct wsa_reg_mask_val reg_init[] = {
 	{WSA883X_CURRENT_LIMIT, 0x78, 0x40},
 	{WSA883X_DRE_CTL_0, 0x07, 0x02},
 	{WSA883X_VAGC_TIME, 0x0F, 0x0F},
-	{WSA883X_VAGC_ATTN_LVL_1_2, 0xFF, 0x00},
-	{WSA883X_VAGC_ATTN_LVL_3, 0xFF, 0x00},
+	{WSA883X_VAGC_ATTN_LVL_1_2, 0x70, 0x10},
+	{WSA883X_VAGC_ATTN_LVL_3, 0x07, 0x02},
 	{WSA883X_VAGC_CTL, 0x01, 0x01},
 	{WSA883X_TAGC_CTL, 0x0E, 0x0A},
 	{WSA883X_TAGC_TIME, 0x0C, 0x0C},
@@ -132,8 +132,6 @@ static int wsa883x_get_temperature(struct snd_soc_component *component,
 enum {
 	WSA8830 = 0,
 	WSA8835,
-	WSA8832,
-	WSA8835_V2 = 5,
 };
 
 enum {
@@ -512,44 +510,13 @@ static irqreturn_t wsa883x_uvlo_handle_irq(int irq, void *data)
 
 static irqreturn_t wsa883x_pa_on_err_handle_irq(int irq, void *data)
 {
-	u8 pa_fsm_sta = 0, pa_fsm_err = 0;
-	struct wsa883x_priv *wsa883x = data;
-	struct snd_soc_component *component = NULL;
-
-	if (!wsa883x)
-		return IRQ_NONE;
-
-	component = wsa883x->component;
-	if (!component)
-		return IRQ_NONE;
-
-	pa_fsm_sta = (snd_soc_component_read32(component, WSA883X_PA_FSM_STA)
-			& 0x70);
-
-	if (pa_fsm_sta)
-		pa_fsm_err = snd_soc_component_read32(component,
-						WSA883X_PA_FSM_ERR_COND);
-	pr_err_ratelimited("%s: irq: %d, pa_fsm_sta: %d, pa_fsm_err: %d\n",
-		__func__, irq, pa_fsm_sta, pa_fsm_err);
-
-	snd_soc_component_update_bits(component, WSA883X_PA_FSM_CTL,
-					0x10, 0x00);
-	snd_soc_component_update_bits(component, WSA883X_PA_FSM_CTL,
-					0x10, 0x10);
-	snd_soc_component_update_bits(component, WSA883X_PA_FSM_CTL,
-					0x10, 0x00);
-
+	pr_err_ratelimited("%s: interrupt for irq =%d triggered\n",
+			   __func__, irq);
 	return IRQ_HANDLED;
 }
 
 static const char * const wsa_dev_mode_text[] = {
 	"speaker", "receiver", "ultrasound"
-};
-
-enum {
-	SPEAKER,
-	RECEIVER,
-	ULTRASOUND,
 };
 
 static const struct soc_enum wsa_dev_mode_enum =
@@ -723,11 +690,7 @@ static ssize_t wsa883x_variant_read(struct snd_info_entry *entry,
 	case WSA8830:
 		len = snprintf(buffer, sizeof(buffer), "WSA8830\n");
 		break;
-	case WSA8832:
-		len = snprintf(buffer, sizeof(buffer), "WSA8832\n");
-		break;
 	case WSA8835:
-	case WSA8835_V2:
 		len = snprintf(buffer, sizeof(buffer), "WSA8835\n");
 		break;
 	default:
@@ -1074,7 +1037,6 @@ static int wsa883x_spkr_event(struct snd_soc_dapm_widget *w,
 	struct snd_soc_component *component =
 			snd_soc_dapm_to_component(w->dapm);
 	struct wsa883x_priv *wsa883x = snd_soc_component_get_drvdata(component);
-	struct irq_data *irq_data = NULL;
 
 	dev_dbg(component->dev, "%s: %s %d\n", __func__, w->name, event);
 	switch (event) {
@@ -1084,33 +1046,10 @@ static int wsa883x_spkr_event(struct snd_soc_dapm_widget *w,
 					    true);
 		/* Added delay as per HW sequence */
 		usleep_range(250, 300);
-		if (wsa883x->dev_mode == RECEIVER) {
-			snd_soc_component_update_bits(component,
-						WSA883X_DRE_CTL_0,
-						0xF0, 0x00);
-			snd_soc_component_update_bits(component,
-						WSA883X_DRE_CTL_0,
-						0x07, 0x04);
-		} else if (wsa883x->dev_mode == SPEAKER) {
-			snd_soc_component_update_bits(component,
-						WSA883X_DRE_CTL_0,
-						0xF0, 0x90);
-			if (wsa883x->variant == WSA8830 ||
-				wsa883x->variant == WSA8832)
-				snd_soc_component_update_bits(component,
-						WSA883X_DRE_CTL_0,
-						0x07, 0x03);
-			else
-				snd_soc_component_update_bits(component,
-						WSA883X_DRE_CTL_0,
-						0x07, 0x02);
-		}
-		snd_soc_component_update_bits(component,
-					WSA883X_DRE_CTL_1,
-					0x01, 0x01);
+		snd_soc_component_update_bits(component, WSA883X_DRE_CTL_1,
+						0x01, 0x01);
 		/* Added delay as per HW sequence */
 		usleep_range(250, 300);
-		wcd_enable_irq(&wsa883x->irq_info, WSA883X_IRQ_INT_PA_ON_ERR);
 		wcd_enable_irq(&wsa883x->irq_info, WSA883X_IRQ_INT_UVLO);
 		/* Force remove group */
 		swr_remove_from_group(wsa883x->swr_slave,
@@ -1126,12 +1065,9 @@ static int wsa883x_spkr_event(struct snd_soc_dapm_widget *w,
 				WSA883X_PA_FSM_CTL, 0x01, 0x01);
 		break;
 	case SND_SOC_DAPM_PRE_PMD:
-		if (!test_bit(SPKR_ADIE_LB, &wsa883x->status_mask)) {
-			irq_data = irq_get_irq_data(WSA883X_IRQ_INT_PDM_WD);
-			if (irq_data && !irqd_irq_disabled(irq_data))
-				wcd_disable_irq(&wsa883x->irq_info,
-						WSA883X_IRQ_INT_PDM_WD);
-		}
+		if (!test_bit(SPKR_ADIE_LB, &wsa883x->status_mask))
+			wcd_disable_irq(&wsa883x->irq_info,
+					WSA883X_IRQ_INT_PDM_WD);
 		snd_soc_component_update_bits(component,
 				WSA883X_VBAT_ADC_FLT_CTL,
 				0x01, 0x00);
@@ -1140,16 +1076,9 @@ static int wsa883x_spkr_event(struct snd_soc_dapm_widget *w,
 				0x0E, 0x00);
 		snd_soc_component_update_bits(component, WSA883X_PA_FSM_CTL,
 				0x01, 0x00);
-		snd_soc_component_update_bits(component, WSA883X_PA_FSM_CTL,
-				0x10, 0x00);
-		snd_soc_component_update_bits(component, WSA883X_PA_FSM_CTL,
-				0x10, 0x10);
-		snd_soc_component_update_bits(component, WSA883X_PA_FSM_CTL,
-				0x10, 0x00);
 		snd_soc_component_update_bits(component, WSA883X_PDM_WD_CTL,
 				0x01, 0x00);
 		wcd_disable_irq(&wsa883x->irq_info, WSA883X_IRQ_INT_UVLO);
-		wcd_disable_irq(&wsa883x->irq_info, WSA883X_IRQ_INT_PA_ON_ERR);
 		clear_bit(SPKR_STATUS, &wsa883x->status_mask);
 		clear_bit(SPKR_ADIE_LB, &wsa883x->status_mask);
 		break;
@@ -1211,7 +1140,7 @@ static void wsa883x_codec_init(struct snd_soc_component *component)
 		snd_soc_component_update_bits(component, reg_init[i].reg,
 					reg_init[i].mask, reg_init[i].val);
 
-	if (wsa883x->variant == WSA8830 || wsa883x->variant == WSA8832)
+	if (wsa883x->variant == WSA8830)
 		snd_soc_component_update_bits(component, WSA883X_DRE_CTL_0,
 					0x07, 0x03);
 }
@@ -1503,7 +1432,6 @@ static int wsa883x_event_notify(struct notifier_block *nb,
 	u16 event = (val & 0xffff);
 	struct wsa883x_priv *wsa883x = container_of(nb, struct wsa883x_priv,
 						    parent_nblock);
-	struct irq_data *irq_data = NULL;
 
 	if (!wsa883x)
 		return -EINVAL;
@@ -1532,10 +1460,8 @@ static int wsa883x_event_notify(struct notifier_block *nb,
 			snd_soc_component_update_bits(wsa883x->component,
 						WSA883X_PA_FSM_CTL,
 						0x01, 0x01);
-			irq_data = irq_get_irq_data(WSA883X_IRQ_INT_PDM_WD);
-			if (irq_data && irqd_irq_disabled(irq_data))
-				wcd_enable_irq(&wsa883x->irq_info,
-						WSA883X_IRQ_INT_PDM_WD);
+			wcd_enable_irq(&wsa883x->irq_info,
+					WSA883X_IRQ_INT_PDM_WD);
 			/* Added delay as per HW sequence */
 			usleep_range(3000, 3100);
 			snd_soc_component_update_bits(wsa883x->component,
@@ -1726,7 +1652,7 @@ static int wsa883x_swr_probe(struct swr_device *pdev)
 	wcd_disable_irq(&wsa883x->irq_info, WSA883X_IRQ_INT_UVLO);
 
 	wcd_request_irq(&wsa883x->irq_info, WSA883X_IRQ_INT_PA_ON_ERR,
-			"WSA PA ERR", wsa883x_pa_on_err_handle_irq, wsa883x);
+			"WSA PA ERR", wsa883x_pa_on_err_handle_irq, NULL);
 
 	wcd_disable_irq(&wsa883x->irq_info, WSA883X_IRQ_INT_PA_ON_ERR);
 

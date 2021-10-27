@@ -669,7 +669,7 @@ static int q6asm_map_cal_memory(int32_t cal_type,
 		goto done;
 	}
 
-	/* Use first asm buf to map memory */
+	/* Use second asm buf to map memory */
 	if (common_client.port[IN].buf == NULL) {
 		pr_err("%s: common buf is NULL\n",
 			__func__);
@@ -759,8 +759,6 @@ static int q6asm_unmap_cal_memory(int32_t cal_type,
 			goto done;
 		}
 	}
-
-	common_client.port[IN].buf->phys = cal_block->cal_data.paddr;
 
 	result2 = q6asm_memory_unmap_regions(&common_client, IN);
 	if (result2 < 0) {
@@ -1703,8 +1701,11 @@ static int32_t q6asm_srvc_callback(struct apr_client_data *data, void *priv)
 				buf_node = list_entry(ptr,
 						struct asm_buffer_node,
 						list);
-				list_del(&buf_node->list);
-				kfree(buf_node);
+				if (buf_node->buf_phys_addr ==
+				common_client.port[i].buf->phys) {
+					list_del(&buf_node->list);
+					kfree(buf_node);
+				}
 			}
 			pr_debug("%s: Clearing custom topology\n", __func__);
 		}
@@ -2002,12 +2003,9 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 		switch (payload[0]) {
 		case ASM_STREAM_CMD_SET_PP_PARAMS_V2:
 		case ASM_STREAM_CMD_SET_PP_PARAMS_V3:
-			//cmd_state_pp : wait=-1 , non wait=0
-			if (atomic_read(&ac->cmd_state_pp) != -1) {
-				if (rtac_make_asm_callback(ac->session, payload,
+			if (rtac_make_asm_callback(ac->session, payload,
 					data->payload_size))
-					break;
-			}
+				break;
 		case ASM_SESSION_CMD_PAUSE:
 		case ASM_SESSION_CMD_SUSPEND:
 		case ASM_DATA_CMD_EOS:
@@ -2426,8 +2424,7 @@ static int32_t q6asm_callback(struct apr_client_data *data, void *priv)
 		if (payload_size > UINT_MAX - sizeof(struct msm_adsp_event_data)) {
 			pr_err("%s: payload size = %d exceeds limit.\n",
 				__func__, payload_size);
-			spin_unlock_irqrestore(
-				&(session[session_id].session_lock), flags);
+			spin_unlock(&(session[session_id].session_lock));
 			return -EINVAL;
 		}
 
@@ -2626,48 +2623,6 @@ exit:
 	return ret;
 }
 EXPORT_SYMBOL(q6asm_cpu_buf_release);
-
-/**
- * q6asm_cpu_buf_release_nolock -
- *       releases cpu buffer for ASM
- *
- * @dir: RX or TX direction
- * @ac: Audio client handle
- *
- * Returns 0 on success or error on failure
- **/
-
-int q6asm_cpu_buf_release_nolock(int dir, struct audio_client *ac)
-{
-	struct audio_port_data *port;
-	int ret = 0;
-	int idx;
-
-	if (!ac || ((dir != IN) && (dir != OUT))) {
-		pr_err("%s: ac %pK dir %d\n", __func__, ac, dir);
-		ret = -EINVAL;
-		goto exit;
-	}
-
-	if (ac->io_mode & SYNC_IO_MODE) {
-		port = &ac->port[dir];
-		idx = port->cpu_buf;
-		if (port->cpu_buf == 0) {
-			port->cpu_buf = port->max_buf_cnt - 1;
-		} else if (port->cpu_buf < port->max_buf_cnt) {
-			port->cpu_buf = port->cpu_buf - 1;
-		} else {
-			pr_err("%s: buffer index(%d) out of range\n",
-				__func__, port->cpu_buf);
-			ret = -EINVAL;
-			goto exit;
-		}
-		port->buf[port->cpu_buf].used = dir ^ 1;
-	}
-exit:
-	return ret;
-}
-EXPORT_SYMBOL(q6asm_cpu_buf_release_nolock);
 
 /**
  * q6asm_is_cpu_buf_avail_nolock -
@@ -3562,7 +3517,7 @@ static int __q6asm_open_write(struct audio_client *ac, uint32_t format,
 	rc = q6asm_get_asm_topology_apptype(&cal_info);
 	open.postprocopo_id = cal_info.topology_id;
 
-	if ((ac->perf_mode != LEGACY_PCM_MODE) && (ac->perf_mode != LOW_LATENCY_PCM_MODE))
+	if (ac->perf_mode != LEGACY_PCM_MODE)
 		open.postprocopo_id = ASM_STREAM_POSTPROCOPO_ID_NONE;
 
 	pr_debug("%s: perf_mode %d asm_topology 0x%x bps %d\n", __func__,
@@ -5170,6 +5125,7 @@ static int q6asm_enc_cfg_blk_pcm_v5(struct audio_client *ac,
 fail_cmd:
 	return rc;
 }
+EXPORT_SYMBOL(q6asm_enc_cfg_blk_pcm_v5);
 
 /*
  * q6asm_enc_cfg_blk_pcm_v4 - sends encoder configuration parameters
@@ -5486,17 +5442,13 @@ EXPORT_SYMBOL(q6asm_enc_cfg_blk_pcm_v2);
 
 static int __q6asm_enc_cfg_blk_pcm_v5(struct audio_client *ac,
 				      uint32_t rate, uint32_t channels,
-				      bool use_default_chmap,
-				      char *channel_map,
 				      uint16_t bits_per_sample,
 				      uint16_t sample_word_size,
 				      uint16_t endianness,
 				      uint16_t mode)
 {
 	return q6asm_enc_cfg_blk_pcm_v5(ac, rate, channels,
-					bits_per_sample,
-					use_default_chmap, false,
-					channel_map,
+					bits_per_sample, true, false, NULL,
 					sample_word_size, endianness, mode);
 }
 
@@ -5605,28 +5557,20 @@ EXPORT_SYMBOL(q6asm_enc_cfg_blk_pcm_format_support_v4);
  * @rate: sample rate
  * @channels: number of channels
  * @bits_per_sample: bit width of encoder session
- * @use_default_chmap: true if default channel map to be used
- * @channel_map: input channel map
  * @sample_word_size: Size in bits of the word that holds a sample of a channel
  * @endianness: endianness of the pcm data
  * @mode: Mode to provide additional info about the pcm input data
  */
 int q6asm_enc_cfg_blk_pcm_format_support_v5(struct audio_client *ac,
 					    uint32_t rate, uint32_t channels,
-					    bool use_default_chmap,
-					    char *channel_map,
 					    uint16_t bits_per_sample,
 					    uint16_t sample_word_size,
 					    uint16_t endianness,
 					    uint16_t mode)
 {
 	 return __q6asm_enc_cfg_blk_pcm_v5(ac, rate, channels,
-					   use_default_chmap,
-					   channel_map,
-					   bits_per_sample,
-					   sample_word_size,
-					   endianness,
-					   mode);
+					   bits_per_sample, sample_word_size,
+					   endianness, mode);
 }
 
 EXPORT_SYMBOL(q6asm_enc_cfg_blk_pcm_format_support_v5);
@@ -8625,6 +8569,7 @@ fail_cmd:
 	mmap_region_cmd = NULL;
 	return rc;
 }
+EXPORT_SYMBOL(q6asm_memory_map_regions);
 
 /**
  * q6asm_memory_unmap_regions -
@@ -8723,6 +8668,7 @@ fail_cmd:
 	}
 	return rc;
 }
+EXPORT_SYMBOL(q6asm_memory_unmap_regions);
 
 int q6asm_set_lrgain(struct audio_client *ac, int left_gain, int right_gain)
 {

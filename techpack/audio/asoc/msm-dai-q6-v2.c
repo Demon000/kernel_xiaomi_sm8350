@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/init.h>
@@ -30,9 +30,6 @@
 
 #define MSM_DAI_TWS_CHANNEL_MODE_ONE 1
 #define MSM_DAI_TWS_CHANNEL_MODE_TWO 2
-
-#define MSM_DAI_LC3_CHANNEL_MODE_ONE 1
-#define MSM_DAI_LC3_CHANNEL_MODE_TWO 2
 
 #define spdif_clock_value(rate) (2*rate*32*2)
 #define CHANNEL_STATUS_SIZE 24
@@ -67,7 +64,6 @@ enum {
 	DEC_FMT_MP3 = ASM_MEDIA_FMT_MP3,
 	ENC_FMT_APTX_AD_SPEECH = ASM_MEDIA_FMT_APTX_AD_SPEECH,
 	DEC_FMT_APTX_AD_SPEECH = ASM_MEDIA_FMT_APTX_AD_SPEECH,
-	ENC_FMT_LC3 = ASM_MEDIA_FMT_LC3,
 };
 
 enum {
@@ -394,12 +390,6 @@ static const struct soc_enum tdm_config_enum[] = {
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(tdm_data_format), tdm_data_format),
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(tdm_header_type), tdm_header_type),
 };
-
-static u16 afe_port_logging_port_id;
-
-static bool afe_port_logging_item[IDX_TDM_MAX];
-
-static int afe_port_loggging_control_added;
 
 static DEFINE_MUTEX(tdm_mutex);
 
@@ -2776,7 +2766,6 @@ static int msm_dai_q6_hw_params(struct snd_pcm_substream *substream,
 	case RT_PROXY_DAI_002_TX:
 	case RT_PROXY_DAI_002_RX:
 	case RT_PROXY_DAI_003_TX:
-	case RT_PROXY_DAI_003_RX:
 	case RT_PROXY_PORT_002_TX:
 	case RT_PROXY_PORT_002_RX:
 		rc = msm_dai_q6_afe_rtproxy_hw_params(params, dai);
@@ -3251,11 +3240,7 @@ static int msm_dai_q6_afe_enc_cfg_get(struct snd_kcontrol *kcontrol,
 				&dai_data->enc_config.data,
 				sizeof(struct asm_aptx_ad_speech_enc_cfg_t));
 			break;
-		case ENC_FMT_LC3:
-			memcpy(ucontrol->value.bytes.data + format_size,
-				&dai_data->enc_config.data,
-				sizeof(struct asm_enc_lc3_cfg_t));
-			break;
+
 		default:
 			pr_debug("%s: unknown format = %d\n",
 				 __func__, dai_data->enc_config.format);
@@ -3329,11 +3314,6 @@ static int msm_dai_q6_afe_enc_cfg_put(struct snd_kcontrol *kcontrol,
 				ucontrol->value.bytes.data + format_size,
 				sizeof(struct asm_aptx_ad_speech_enc_cfg_t));
 			break;
-		case ENC_FMT_LC3:
-			memcpy(&dai_data->enc_config.data,
-				ucontrol->value.bytes.data + format_size,
-				sizeof(struct asm_enc_lc3_cfg_t));
-			break;
 
 		default:
 			pr_debug("%s: Ignore enc config for unknown format = %d\n",
@@ -3364,12 +3344,6 @@ static const char *const tws_chs_mode_text[] = {"Zero", "One", "Two"};
 
 static const struct soc_enum tws_chs_mode_enum[] = {
 	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(tws_chs_mode_text), tws_chs_mode_text),
-};
-
-static const char *const lc3_chs_mode_text[] = {"Zero", "One", "Two"};
-
-static const struct soc_enum lc3_chs_mode_enum[] = {
-	SOC_ENUM_SINGLE_EXT(ARRAY_SIZE(lc3_chs_mode_text), lc3_chs_mode_text),
 };
 
 static int msm_dai_q6_afe_input_channel_get(struct snd_kcontrol *kcontrol,
@@ -3453,67 +3427,6 @@ static int msm_dai_q6_tws_channel_mode_put(struct snd_kcontrol *kcontrol,
 			ucontrol->value.integer.value[0] ==
 			MSM_DAI_TWS_CHANNEL_MODE_TWO)
 			dai_data->enc_config.mono_mode =
-				ucontrol->value.integer.value[0];
-		else
-			return -EINVAL;
-	}
-exit:
-	return ret;
-}
-
-static int msm_dai_q6_lc3_channel_mode_get(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_dai *dai = kcontrol->private_data;
-	struct msm_dai_q6_dai_data *dai_data = NULL;
-
-	if (dai)
-		dai_data = dev_get_drvdata(dai->dev);
-
-	if (dai_data) {
-		ucontrol->value.integer.value[0] =
-				dai_data->enc_config.lc3_mono_mode;
-		pr_debug("%s:lc3 channel mode = %d\n",
-			 __func__, dai_data->enc_config.lc3_mono_mode);
-	}
-
-	return 0;
-}
-
-static int msm_dai_q6_lc3_channel_mode_put(struct snd_kcontrol *kcontrol,
-			struct snd_ctl_elem_value *ucontrol)
-{
-	struct snd_soc_dai *dai = kcontrol->private_data;
-	struct msm_dai_q6_dai_data *dai_data = NULL;
-	int ret = 0;
-	u32 format = 0;
-
-	if (dai)
-		dai_data = dev_get_drvdata(dai->dev);
-
-	if (dai_data)
-		format = dai_data->enc_config.format;
-	else
-		goto exit;
-
-	if (format == ENC_FMT_LC3) {
-		if (test_bit(STATUS_PORT_STARTED, dai_data->status_mask)) {
-			ret = afe_set_lc3_channel_mode(format,
-				dai->id, ucontrol->value.integer.value[0]);
-			if (ret < 0) {
-				pr_err("%s: channel mode setting failed for LC3\n",
-				__func__);
-				goto exit;
-			} else {
-				pr_debug("%s: updating lc3 channel mode : %d\n",
-				__func__, dai_data->enc_config.lc3_mono_mode);
-			}
-		}
-		if (ucontrol->value.integer.value[0] ==
-			MSM_DAI_LC3_CHANNEL_MODE_ONE ||
-			ucontrol->value.integer.value[0] ==
-			MSM_DAI_LC3_CHANNEL_MODE_TWO)
-			dai_data->enc_config.lc3_mono_mode =
 				ucontrol->value.integer.value[0];
 		else
 			return -EINVAL;
@@ -3726,10 +3639,7 @@ static const struct snd_kcontrol_new afe_enc_config_controls[] = {
 		.info = msm_dai_q6_afe_enc_cfg_info,
 		.get = msm_dai_q6_afe_enc_cfg_get,
 		.put = msm_dai_q6_afe_enc_cfg_put,
-	},
-	SOC_ENUM_EXT("LC3 Channel Mode", lc3_chs_mode_enum[0],
-			msm_dai_q6_lc3_channel_mode_get,
-			msm_dai_q6_lc3_channel_mode_put)
+	}
 };
 
 static int  msm_dai_q6_afe_dec_cfg_info(struct snd_kcontrol *kcontrol,
@@ -3772,13 +3682,6 @@ static int msm_dai_q6_afe_feedback_dec_cfg_get(struct snd_kcontrol *kcontrol,
 		memcpy(ucontrol->value.bytes.data + format_size + abr_size,
 			&dai_data->dec_config.data,
 			sizeof(struct asm_aptx_ad_speech_dec_cfg_t));
-		break;
-	case ASM_MEDIA_FMT_LC3:
-		pr_debug("%s: afe_dec_cfg for %d format\n",
-				__func__, dai_data->dec_config.format);
-		memcpy(ucontrol->value.bytes.data + format_size + abr_size,
-			&dai_data->dec_config.data,
-			sizeof(struct asm_lc3_dec_cfg_t));
 		break;
 	default:
 		pr_debug("%s: no afe_dec_cfg for format %d\n",
@@ -3823,13 +3726,6 @@ static int msm_dai_q6_afe_feedback_dec_cfg_put(struct snd_kcontrol *kcontrol,
 		memcpy(&dai_data->dec_config.data,
 			ucontrol->value.bytes.data + format_size + abr_size,
 			sizeof(struct asm_aptx_ad_speech_dec_cfg_t));
-		break;
-	case ASM_MEDIA_FMT_LC3:
-		pr_debug("%s: afe_dec_cfg for %d format\n",
-				__func__, dai_data->dec_config.format);
-		memcpy(&dai_data->dec_config.data,
-			ucontrol->value.bytes.data + format_size + abr_size,
-			sizeof(struct asm_lc3_dec_cfg_t));
 		break;
 	default:
 		pr_debug("%s: no afe_dec_cfg for format %d\n",
@@ -4036,9 +3932,6 @@ static const struct snd_kcontrol_new afe_dec_config_controls[] = {
 	SOC_ENUM_EXT("AFE Output Bit Format", afe_bit_format_enum[0],
 		     msm_dai_q6_afe_output_bit_format_get,
 		     msm_dai_q6_afe_output_bit_format_put),
-	SOC_ENUM_EXT("AFE Output Channels SLIM7", afe_chs_enum[0],
-		     msm_dai_q6_afe_output_channel_get,
-		     msm_dai_q6_afe_output_channel_put),
 };
 
 static const struct snd_kcontrol_new afe_ttp_config_controls[] = {
@@ -4112,10 +4005,6 @@ static const struct soc_enum rt_proxy_1_rx_enum =
 	SOC_ENUM_SINGLE(RT_PROXY_PORT_001_RX, 0, ARRAY_SIZE(afe_cal_mode_text),
 			afe_cal_mode_text);
 
-static const struct soc_enum rt_proxy_2_rx_enum =
-	SOC_ENUM_SINGLE(RT_PROXY_PORT_002_RX, 0, ARRAY_SIZE(afe_cal_mode_text),
-			afe_cal_mode_text);
-
 static const struct soc_enum rt_proxy_1_tx_enum =
 	SOC_ENUM_SINGLE(RT_PROXY_PORT_001_TX, 0, ARRAY_SIZE(afe_cal_mode_text),
 			afe_cal_mode_text);
@@ -4137,14 +4026,11 @@ static const struct snd_kcontrol_new sb_config_controls[] = {
 
 static const struct snd_kcontrol_new rt_proxy_config_controls[] = {
 	SOC_ENUM_EXT("RT_PROXY_1_RX SetCalMode", rt_proxy_1_rx_enum,
-			msm_dai_q6_cal_info_get,
-			msm_dai_q6_cal_info_put),
+		     msm_dai_q6_cal_info_get,
+		     msm_dai_q6_cal_info_put),
 	SOC_ENUM_EXT("RT_PROXY_1_TX SetCalMode", rt_proxy_1_tx_enum,
-			msm_dai_q6_cal_info_get,
-			msm_dai_q6_cal_info_put),
-	SOC_ENUM_EXT("RT_PROXY_2_RX SetCalMode", rt_proxy_2_rx_enum,
-			msm_dai_q6_cal_info_get,
-			msm_dai_q6_cal_info_put),
+		     msm_dai_q6_cal_info_get,
+		     msm_dai_q6_cal_info_put),
 };
 
 static const struct snd_kcontrol_new usb_audio_cfg_controls[] = {
@@ -4274,18 +4160,12 @@ static int msm_dai_q6_dai_probe(struct snd_soc_dai *dai)
 				 snd_ctl_new1(&afe_enc_config_controls[5],
 				 dai_data));
 		rc = snd_ctl_add(dai->component->card->snd_card,
-				snd_ctl_new1(&afe_enc_config_controls[6],
-				dai));
-		rc = snd_ctl_add(dai->component->card->snd_card,
 				snd_ctl_new1(&avd_drift_config_controls[2],
 					dai));
 		break;
 	case SLIMBUS_7_TX:
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				 snd_ctl_new1(&afe_dec_config_controls[0],
-				 dai_data));
-		rc = snd_ctl_add(dai->component->card->snd_card,
-				 snd_ctl_new1(&afe_dec_config_controls[4],
 				 dai_data));
 		break;
 	case SLIMBUS_9_TX:
@@ -4314,11 +4194,6 @@ static int msm_dai_q6_dai_probe(struct snd_soc_dai *dai)
 		rc = snd_ctl_add(dai->component->card->snd_card,
 				 snd_ctl_new1(&rt_proxy_config_controls[1],
 				 dai_data));
-		break;
-	case RT_PROXY_DAI_003_RX:
-		rc = snd_ctl_add(dai->component->card->snd_card,
-				snd_ctl_new1(&rt_proxy_config_controls[2],
-				dai_data));
 		break;
 	case AFE_PORT_ID_USB_RX:
 		rc = snd_ctl_add(dai->component->card->snd_card,
@@ -4414,24 +4289,6 @@ static struct snd_soc_dai_driver msm_dai_q6_afe_rx_dai[] = {
 		},
 		.ops = &msm_dai_q6_ops,
 		.id = RT_PROXY_DAI_002_RX,
-		.probe = msm_dai_q6_dai_probe,
-		.remove = msm_dai_q6_dai_remove,
-	},
-	{
-		.playback = {
-			.stream_name = "AFE Playback1",
-			.aif_name = "PCM_RX1",
-			.rates = SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_8000 |
-			SNDRV_PCM_RATE_16000,
-			.formats = SNDRV_PCM_FMTBIT_S16_LE |
-			SNDRV_PCM_FMTBIT_S24_LE,
-			.channels_min = 1,
-			.channels_max = 2,
-			.rate_min =     8000,
-			.rate_max =     48000,
-		},
-		.ops = &msm_dai_q6_ops,
-		.id = RT_PROXY_DAI_003_RX,
 		.probe = msm_dai_q6_dai_probe,
 		.remove = msm_dai_q6_dai_remove,
 	},
@@ -7175,10 +7032,6 @@ static int msm_dai_q6_meta_mi2s_hw_params(struct snd_pcm_substream *substream,
 		port_cfg->bit_width = 24;
 		dai_data->bitwidth = 24;
 		break;
-	case SNDRV_PCM_FORMAT_S32_LE:
-		port_cfg->bit_width = 32;
-		dai_data->bitwidth = 32;
-		break;
 	default:
 		pr_err("%s: format %d\n",
 			__func__, params_format(params));
@@ -7670,9 +7523,6 @@ register_slim_capture:
 	case RT_PROXY_DAI_001_RX:
 		strlcpy(stream_name, "AFE Playback", 80);
 		goto register_afe_playback;
-	case RT_PROXY_DAI_003_RX:
-		strlcpy(stream_name, "AFE Playback1", 80);
-		goto register_afe_playback;
 	case RT_PROXY_DAI_002_RX:
 		strlcpy(stream_name, "AFE-PROXY RX", 80);
 register_afe_playback:
@@ -7799,7 +7649,6 @@ static struct platform_driver msm_dai_q6_dev = {
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_dev_dt_match,
 		.suppress_bind_attrs = true,
-		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 
@@ -7838,7 +7687,6 @@ static struct platform_driver msm_dai_q6 = {
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_dt_match,
 		.suppress_bind_attrs = true,
-		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 
@@ -8213,7 +8061,6 @@ static struct platform_driver msm_dai_tdm_q6 = {
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_tdm_dt_match,
 		.suppress_bind_attrs = true,
-		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 
@@ -9298,95 +9145,6 @@ static int msm_dai_q6_tdm_set_clk(
 	return rc;
 }
 
-static int msm_pcm_afe_port_logging_info(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_info* ucontrol)
-{
-	ucontrol->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	/* two int values: port_id and enable/disable */
-	ucontrol->count = 2;
-	/* Valid range is all positive values to support above controls */
-	ucontrol->value.integer.min = 0;
-	ucontrol->value.integer.max = INT_MAX;
-	return 0;
-}
-
-static int msm_pcm_afe_port_logging_ctl_get(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	int port_idx = afe_port_logging_port_id - AFE_PORT_ID_TDM_PORT_RANGE_START;
-
-	ucontrol->value.integer.value[0] = afe_port_logging_port_id;
-	if (port_idx < 0 || port_idx >= IDX_TDM_MAX) {
-		pr_err_ratelimited("%s: port_idx = %d\n", __func__, port_idx);
-		return -EINVAL;
-	}
-	ucontrol->value.integer.value[1] = afe_port_logging_item[port_idx];
-
-	return 0;
-}
-
-static int msm_pcm_afe_port_logging_ctl_put(struct snd_kcontrol *kcontrol,
-	struct snd_ctl_elem_value *ucontrol)
-{
-	u16 port_id;
-	struct afe_param_id_port_data_log_disable_t log_disable;
-	struct param_hdr_v3 param_hdr;
-	int ret = -EINVAL, port_idx;
-
-	pr_debug("%s: enter\n", __func__);
-	memset(&param_hdr, 0, sizeof(param_hdr));
-
-	port_id = ucontrol->value.integer.value[0];
-	log_disable.disable_logging_flag = ucontrol->value.integer.value[1];
-
-	ret = afe_port_send_logging_cfg(port_id, &log_disable);
-	if (ret)
-		pr_err("%s: AFE port logging setting for port 0x%x failed %d\n",
-			__func__, port_id, ret);
-
-	afe_port_logging_port_id = port_id;
-	port_idx = port_id - AFE_PORT_ID_TDM_PORT_RANGE_START;
-	if (port_idx < 0 || port_idx >= IDX_TDM_MAX) {
-		pr_err_ratelimited("%s: port_idx = %d\n", __func__, port_idx);
-		return -EINVAL;
-	}
-	afe_port_logging_item[port_idx] = ucontrol->value.integer.value[1];
-
-	return ret;
-}
-
-static int msm_pcm_add_afe_port_logging_control(struct snd_soc_dai *dai)
-{
-	const char* afe_port_logging_ctl_name = "AFE_port_logging_disable";
-	int rc = 0;
-	struct snd_kcontrol_new *knew = NULL;
-	struct snd_kcontrol* kctl = NULL;
-
-	/* Add AFE port logging controls */
-	knew = kzalloc(sizeof(struct snd_kcontrol_new), GFP_KERNEL);
-	if (!knew) {
-		return -ENOMEM;
-	}
-	knew->iface = SNDRV_CTL_ELEM_IFACE_MIXER;
-	knew->info = msm_pcm_afe_port_logging_info;
-	knew->get = msm_pcm_afe_port_logging_ctl_get;
-	knew->put = msm_pcm_afe_port_logging_ctl_put;
-	knew->name = afe_port_logging_ctl_name;
-	knew->private_value = dai->id;
-	kctl = snd_ctl_new1(knew, knew);
-	if (!kctl) {
-		kfree(knew);
-		return -ENOMEM;
-	}
-
-	rc = snd_ctl_add(dai->component->card->snd_card, kctl);
-	if (rc < 0)
-		pr_err("%s: err add AFE port logging disable control, DAI = %s\n",
-			__func__, dai->name);
-
-	return rc;
-}
-
 static int msm_dai_q6_dai_tdm_probe(struct snd_soc_dai *dai)
 {
 	int rc = 0;
@@ -9461,18 +9219,6 @@ static int msm_dai_q6_dai_tdm_probe(struct snd_soc_dai *dai)
 				__func__, dai->name);
 			goto rtn;
 		}
-	}
-
-	/* add AFE port logging controls */
-	if (!afe_port_loggging_control_added) {
-		rc = msm_pcm_add_afe_port_logging_control(dai);
-		if (rc < 0) {
-			dev_err(dai->dev, "%s: add AFE port logging control failed DAI: %s\n",
-				__func__, dai->name);
-			goto rtn;
-		}
-
-		afe_port_loggging_control_added = 1;
 	}
 
 	if (tdm_dai_data->is_island_dai)
@@ -12064,7 +11810,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12085,7 +11831,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12106,7 +11852,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12127,7 +11873,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12148,7 +11894,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12169,7 +11915,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12190,7 +11936,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12211,7 +11957,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12232,7 +11978,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12253,7 +11999,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12274,7 +12020,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12295,7 +12041,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12316,7 +12062,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12337,7 +12083,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12358,7 +12104,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12379,7 +12125,7 @@ static struct snd_soc_dai_driver msm_dai_q6_tdm_dai[] = {
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
 			.channels_min = 1,
-			.channels_max = 16,
+			.channels_max = 8,
 			.rate_min = 8000,
 			.rate_max = 352800,
 		},
@@ -12640,7 +12386,6 @@ static struct platform_driver msm_dai_q6_tdm_driver = {
 		.owner = THIS_MODULE,
 		.of_match_table = msm_dai_q6_tdm_dev_dt_match,
 		.suppress_bind_attrs = true,
-		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 
@@ -13636,13 +13381,13 @@ static struct platform_driver msm_dai_cdc_dma_q6 = {
 int __init msm_dai_q6_init(void)
 {
 	int rc;
-#ifndef CONFIG_AUXPCM_DISABLE
+
 	rc = platform_driver_register(&msm_auxpcm_dev_driver);
 	if (rc) {
 		pr_err("%s: fail to register auxpcm dev driver", __func__);
-		return rc;
+		goto fail;
 	}
-#endif
+
 	rc = platform_driver_register(&msm_dai_q6);
 	if (rc) {
 		pr_err("%s: fail to register dai q6 driver", __func__);
@@ -13726,6 +13471,7 @@ dai_q6_dev_fail:
 	platform_driver_unregister(&msm_dai_q6);
 dai_q6_fail:
 	platform_driver_unregister(&msm_auxpcm_dev_driver);
+fail:
 	return rc;
 }
 

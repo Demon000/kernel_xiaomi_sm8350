@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  */
 
 
@@ -1358,7 +1358,6 @@ struct adm_cmd_connect_afe_port_v5 {
 #define INT_FM_TX 0x3005
 #define RT_PROXY_PORT_001_RX	0x2000
 #define RT_PROXY_PORT_001_TX	0x2001
-#define RT_PROXY_PORT_002_RX	0x2002
 #define AFE_LOOPBACK_TX	0x6001
 #define HDMI_RX_MS			0x6002
 #define DISPLAY_PORT_RX	0x6020
@@ -1522,7 +1521,6 @@ struct adm_cmd_connect_afe_port_v5 {
 
 #define  AFE_PORT_ID_RT_PROXY_PORT_001_RX   0x2000
 #define  AFE_PORT_ID_RT_PROXY_PORT_001_TX   0x2001
-#define  AFE_PORT_ID_RT_PROXY_PORT_002_RX   0x2002
 #define AFE_PORT_ID_INTERNAL_BT_SCO_RX      0x3000
 #define AFE_PORT_ID_INTERNAL_BT_SCO_TX      0x3001
 #define AFE_PORT_ID_INTERNAL_BT_A2DP_RX     0x3002
@@ -4105,9 +4103,6 @@ struct afe_id_aptx_adaptive_enc_init
 /* Macro for defining the packetizer ID: COP. */
 #define AFE_MODULE_ID_PACKETIZER_COP 0x0001322A
 
-/* Macro for defining the packetizer ID: COP V2 */
-#define AFE_MODULE_ID_PACKETIZER_COP_V2     0x000132F9
-
 /*
  * Packetizer type parameter for the #AVS_MODULE_ID_ENCODER module.
  * This parameter cannot be set runtime.
@@ -4173,7 +4168,6 @@ struct afe_id_aptx_adaptive_enc_init
  */
 #define AFE_MODULE_ID_DEPACKETIZER_COP        0x00013233
 #define AFE_MODULE_ID_DEPACKETIZER_COP_V1     0x000132E9
-#define AFE_MODULE_ID_DEPACKETIZER_COP_V2     0x000132FC
 
 /* Macros for dynamic loading of modules by AVCS */
 
@@ -4181,21 +4175,9 @@ struct afe_id_aptx_adaptive_enc_init
 
 #define AVS_MODULE_ID_PACKETIZER_COP_V1     0x000132E8
 
-#define AVS_MODULE_ID_PACKETIZER_COP_V2     0x000132F9
-
 #define AVS_MODULE_ID_DEPACKETIZER_COP      0x00013233
 
 #define AVS_MODULE_ID_DEPACKETIZER_COP_V1   0x000132E9
-
-#define AVS_MODULE_ID_DEPACKETIZER_COP_V2   0x000132FC
-
-/*
- * Depacketizer and packetizer type parameter for the
- * #AVS_MODULE_ID_DEPACKETIZER_COP_V2 module and
- * #AVS_MODULE_ID_PACKETIZER_COP_V2 module.
- */
-
-#define AVS_COP_V2_PARAM_ID_STREAM_INFO     0x000132FD
 
 /*
  * Depacketizer type parameter for the #AVS_MODULE_ID_DECODER module.
@@ -4210,12 +4192,6 @@ struct afe_id_aptx_adaptive_enc_init
 struct aptx_channel_mode_param_t {
 	u32 channel_mode;
 } __packed;
-
-#define CAPI_V2_PARAM_SET_LC3_ENC_DOWNMIX_2_MONO    0x00013384
-struct lc3_channel_mode_param_t {
-	u32 channel_mode;
-} __packed;
-
 /*
  * Decoder buffer ID parameter for the #AVS_MODULE_ID_DECODER module.
  * This parameter cannot be set runtime.
@@ -4434,10 +4410,6 @@ struct asm_aac_enc_cfg_t {
 /* FMT ID for apt-X Adaptive speech */
 #define ASM_MEDIA_FMT_APTX_AD_SPEECH 0x00013208
 
-/* FMT ID for lc3 codec */
-#define ASM_MEDIA_FMT_LC3 0x0001337E
-#define ENC_CODEC_TYPE_LC3 0x2B000000
-
 #define PCM_CHANNEL_L         1
 #define PCM_CHANNEL_R         2
 #define PCM_CHANNEL_C         3
@@ -4497,72 +4469,6 @@ struct asm_aptx_ad_speech_enc_cfg_t
 	struct afe_imc_dec_enc_info imc_info;
 	struct asm_aptx_ad_speech_mode_cfg_t speech_mode;
 } __attribute__ ((packed));
-
-
-#define CAPI_V2_PARAM_LC3_ENC_INIT 0x00013381
-#define CAPI_V2_PARAM_LC3_DEC_MODULE_INIT 0x00013391
-struct afe_lc3_stream_map_t {
-	uint32_t stream_id;
-	uint32_t direction;
-	uint32_t channel_mask_lsw;
-	uint32_t channel_mask_msw;
-} __packed;
-
-struct afe_stream_map_t {
-	uint32_t audio_location;
-	uint8_t stream_id;
-	uint8_t direction;
-} __packed;
-
-struct afe_lc3_cfg_t {
-	uint32_t api_version;
-	uint32_t sampling_freq;
-	uint32_t max_octets_per_frame;
-	uint32_t frame_duration;
-	uint32_t bit_depth;
-	uint32_t num_blocks;
-	uint8_t  default_q_level;
-	uint8_t  vendor_specific[16];
-	uint32_t mode;
-} __packed;
-
-struct afe_lc3_enc_cfg_t {
-	struct afe_lc3_cfg_t toAirConfig;
-	uint32_t stream_map_size;
-	struct afe_stream_map_t streamMapOut[16];
-} __packed;
-
-struct afe_lc3_dec_cfg_t {
-	struct afe_lc3_cfg_t FromAir;
-	uint32_t decoder_output_channel;
-	uint32_t stream_map_size;
-	struct afe_stream_map_t streamMapIn[2];
-} __packed;
-
-struct avs_cop_v2_param_id_stream_info_t {
-	uint32_t stream_map_size;
-	struct afe_lc3_stream_map_t streamMap[2];
-} __packed;
-
-struct afe_lc3_dec_config_t {
-	struct afe_lc3_dec_cfg_t from_Air_cfg;
-	struct avs_cop_v2_param_id_stream_info_t streamMapToAir;
-	struct avs_cop_v2_param_id_stream_info_t streamMapFromAir;
-} __packed;
-
-struct afe_lc3_enc_config_t {
-	struct afe_lc3_enc_cfg_t to_Air_cfg;
-	struct avs_cop_v2_param_id_stream_info_t streamMapToAir;
-} __packed;
-
-struct asm_enc_lc3_cfg_t {
-	struct afe_imc_dec_enc_info imc_info;
-	struct afe_lc3_enc_config_t enc_codec;
-} __packed;
-
-struct asm_lc3_dec_cfg_t {
-	struct afe_lc3_dec_config_t dec_codec;
-} __packed;
 
 struct afe_matched_port_t
 {
@@ -4910,14 +4816,12 @@ union afe_enc_config_data {
 	struct asm_lhdc_enc_cfg_t  lhdc_config;
 	struct asm_aptx_ad_enc_cfg_t  aptx_ad_config;
 	struct asm_aptx_ad_speech_enc_cfg_t aptx_ad_speech_config;
-	struct asm_enc_lc3_cfg_t lc3_enc_config;
 };
 
 struct afe_enc_config {
 	u32 format;
 	u32 scrambler_mode;
 	u32 mono_mode;
-	u32 lc3_mono_mode;
 	union afe_enc_config_data data;
 };
 
@@ -4977,7 +4881,6 @@ union afe_dec_config_data {
 	struct asm_mp3_dec_cfg_t mp3_config;
 	struct asm_aptx_ad_dec_cfg_t aptx_ad_config;
 	struct asm_aptx_ad_speech_dec_cfg_t aptx_ad_speech_config;
-	struct asm_lc3_dec_cfg_t lc3_dec_config;
 };
 
 struct afe_dec_config {
@@ -5642,7 +5545,6 @@ struct afe_param_id_lpass_core_shared_clk_cfg {
 #define ADM_CMD_COPP_OPEN_TOPOLOGY_ID_AUDIOSPHERE	0x10028000
 #define VPM_TX_DM_FLUENCE_EF_COPP_TOPOLOGY		0x10000005
 #define AUDIO_RX_MONO_VOIP_COPP_TOPOLOGY		0x11000101
-#define VPM_TX_VOICE_FLUENCE_NN_COPP_TOPOLOGY		0x10028008
 
 /* Memory map regions command payload used by the
  * #ASM_CMD_SHARED_MEM_MAP_REGIONS ,#ADM_CMD_SHARED_MEM_MAP_REGIONS
@@ -12402,15 +12304,16 @@ struct afe_clk_cfg {
 #define AFE_MODULE_CLOCK_SET		0x0001028F
 #define AFE_PARAM_ID_CLOCK_SET		0x00010290
 
-#define CLK_SRC_NAME_MAX 32
-
-enum {
-	CLK_SRC_INTEGRAL,
-	CLK_SRC_FRACT,
-	CLK_SRC_MAX
-};
-
 struct afe_set_clk_drift {
+	/*
+	 * Clock ID
+	 *	@values
+	 *	- 0x100 to 0x10E
+	 *	- 0x200 to 0x20C
+	 *	- 0x500 to 0x505
+	 */
+	uint32_t clk_id;
+
 	/*
 	 * Clock drift  (in PPB) to be set.
 	 *	@values
@@ -12419,20 +12322,12 @@ struct afe_set_clk_drift {
 	int32_t clk_drift;
 
 	/*
-	 * Clock reset.
+	 * Clock rest.
 	 *	@values
 	 *	- 1 -- Reset PLL with the original frequency
 	 *	- 0 -- Adjust the clock with the clk drift value
 	 */
 	uint32_t clk_reset;
-	/*
-	 * Clock src name.
-	 *  @values
-	 *  - values to be set from machine driver
-	 *  - LPAPLL0 -- integral clk src
-	 *  - LPAPLL2 -- fractional clk src
-	 */
-	char clk_src_name[CLK_SRC_NAME_MAX];
 } __packed;
 
 /* This param id is used to adjust audio interface PLL*/
@@ -12811,8 +12706,8 @@ struct afe_param_id_group_device_tdm_cfg {
 	 */
 
 	u32	num_channels;
-	/* Number of active channels = num of active slots * num of active lanes.
-	 * @values 1 to 64
+	/* Number of enabled slots for TDM frame.
+	 * @values 1 to 8
 	 */
 
 	u32	sample_rate;
@@ -13466,45 +13361,5 @@ struct afe_param_id_tdm_lane_cfg {
 	 * set in the mask.
 	 */
 };
-
-/** ID of the parameter used to set the AFE port data logging to enable or disable state.
- * For non-group device use cases, #AFE_MODULE_AUDIO_DEV_INTERFACE uses this
- * parameter to configure the flag used for data logging in afe_data_logging_t
- * of the respective port to enabled or disabled state.
- * The HLOS client can use this parameter to configure the data logging
- * disable flag for it's respective port.
- * The reason for this parameter addition is if a number of ports are
- * configured and running, Upon enabling logging through 0x1586 tap point,
- * we will get input/output logs for all the enabled ports.
- * In order to disabled logging for a specific port for which data logging
- * is not needed, the HLOS client can make use of AFE_PORT_DATA_LOGGING_DISABLE flag.
- * This flag will set to AFE_PORT_DATA_LOGGING_ENABLE during port initialization and also
- * during port stop. If port is restarted, the set param should be called again
- * by the HLOS client if needed to disable data logging.
- * @par
- * If HLOS client doesn't set this paramter, by default the disable flag = AFE_PORT_DATA_LOGGING_ENABLE.
- * If HLOS client sets the flag = AFE_PORT_DATA_LOGGING_DISABLE, the respective port will be disabled for data logging.
- */
-#define AFE_PARAM_ID_PORT_DATA_LOGGING_DISABLE            0x000102E9
-
- /** Enable flag for port data logging. */
-#define AFE_PORT_DATA_LOGGING_ENABLE    0
-
-/** Disable flag for port data logging. */
-#define AFE_PORT_DATA_LOGGING_DISABLE   1
-
-/*
- * Payload of the AFE_PARAM_ID_PORT_DATA_LOGGING_DISABLE parameter used by
- * AFE_MODULE_AUDIO_DEV_INTERFACE
- */
-struct afe_param_id_port_data_log_disable_t
-{
-	uint32_t           disable_logging_flag;
-	/** Flag for enabling or disabling data logging.
-	 * @values
-	 * - AFE_PORT_DATA_LOGGING_ENABLE  - enable data logging.
-	 * - AFE_PORT_DATA_LOGGING_DISABLE - disable data logging.
-	 */
-} __packed;
 
 #endif /*_APR_AUDIO_V2_H_ */
