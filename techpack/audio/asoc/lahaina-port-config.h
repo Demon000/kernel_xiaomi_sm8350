@@ -26,17 +26,6 @@ static struct port_params wsa_frame_params_default[SWR_MSTR_PORT_LEN] = {
 	{15, 10, 0,    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00},
 };
 
-static struct port_params wsa_frame_params_receiver[SWR_MSTR_PORT_LEN] = {
-	{3,  1,  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00},
-	{31, 2,  3,    0xFF, 0xFF, 0xFF, 0x1, 0xFF, 0xFF, 0x00, 0x00},
-	{63, 7,  0,   0xFF, 0xFF, 0xFF,  0xFF, 0xFF, 0xFF, 0x00, 0x00},
-	{3,  6,  0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00},
-	{31, 18, 0,    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00},
-	{63, 13, 31,   0xFF, 0xFF, 0xFF,  0x1, 0xFF, 0xFF, 0x00, 0x00},
-	{15, 3,  0,    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00},
-	{15, 10, 0,    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00},
-};
-
 static struct port_params rx_frame_params_dsd[SWR_MSTR_PORT_LEN] = {
 	{3,  0,  0,  0xFF, 0xFF, 1,    0xFF, 0xFF, 1, 0x00, 0x00},
 	{31, 0,  0,  3,    6,    7,    0,    0xFF, 0, 0x00, 0x00},
@@ -121,7 +110,6 @@ static struct swr_mstr_port_map sm_port_map[] = {
 	{RX_MACRO, SWR_UC1, rx_frame_params_dsd},
 	{RX_MACRO, SWR_UC2, rx_frame_params_44p1KHz},
 	{WSA_MACRO, SWR_UC0, wsa_frame_params_default},
-	{WSA_MACRO, SWR_UC1, wsa_frame_params_receiver},
 };
 
 static struct swr_mstr_port_map sm_port_map_shima[] = {
@@ -132,7 +120,6 @@ static struct swr_mstr_port_map sm_port_map_shima[] = {
 	{RX_MACRO, SWR_UC1, rx_frame_params_dsd},
 	{RX_MACRO, SWR_UC2, rx_frame_params_44p1KHz},
 	{WSA_MACRO, SWR_UC0, wsa_frame_params_default},
-	{WSA_MACRO, SWR_UC1, wsa_frame_params_receiver},
 };
 
 static struct swr_mstr_port_map sm_port_map_wcd937x[] = {
@@ -143,7 +130,6 @@ static struct swr_mstr_port_map sm_port_map_wcd937x[] = {
 	{RX_MACRO, SWR_UC1, rx_frame_params_dsd},
 	{RX_MACRO, SWR_UC2, rx_frame_params_44p1KHz},
 	{WSA_MACRO, SWR_UC0, wsa_frame_params_default},
-	{WSA_MACRO, SWR_UC1, wsa_frame_params_receiver},
 };
 
 #endif /* _LAHAINA_PORT_CONFIG */
