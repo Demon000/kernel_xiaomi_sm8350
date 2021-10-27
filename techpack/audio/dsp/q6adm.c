@@ -3250,8 +3250,8 @@ int adm_open_v2(int port_id, int path, int rate, int channel_mode, int topology,
 					ec_ref_port_cfg->port_id :
 					this_adm.ec_ref_rx;
 
-	int ec_ref_ch = ec_ref_chmix_cfg ?
-					ec_ref_chmix_cfg->input_channel :
+	int ec_ref_ch = ec_ref_port_cfg ?
+					ec_ref_port_cfg->ch :
 					this_adm.num_ec_ref_rx_chans;
 
 	int ec_ref_bit = ec_ref_port_cfg ?
@@ -3461,10 +3461,11 @@ int adm_open_v2(int port_id, int path, int rate, int channel_mode, int topology,
 				if (ec_ref_ch != 0) {
 					open_v8.endpoint_id_2 =
 						ec_ref_port_id;
-					this_adm.ec_ref_rx = AFE_PORT_INVALID;
+					ec_ref_port_id = AFE_PORT_INVALID;
 				} else {
-					pr_warn("%s: EC channels not set %d\n",
+					pr_err("%s: EC channels not set %d\n",
 						__func__, ec_ref_ch);
+					return -EINVAL;
 				}
 			}
 
