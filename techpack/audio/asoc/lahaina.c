@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/clk.h>
@@ -74,6 +74,8 @@
 #define WCD_MBHC_HS_V_MAX           1700
 
 #define TDM_CHANNEL_MAX		8
+
+#define MI2S_NUM_CHANNELS	2
 
 #define MSM_LL_QOS_VALUE	300 /* time in us to ensure LPM doesn't go in C3/C4 */
 
@@ -2837,23 +2839,6 @@ static u32 get_mi2s_bits_per_sample(u32 bit_format)
 	return bit_per_sample;
 }
 
-static void update_mi2s_clk_val(int dai_id, int stream)
-{
-	u32 bit_per_sample = 0;
-
-	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		bit_per_sample =
-		    get_mi2s_bits_per_sample(mi2s_rx_cfg[dai_id].bit_format);
-		mi2s_clk[dai_id].clk_freq_in_hz =
-		    mi2s_rx_cfg[dai_id].sample_rate * 2 * bit_per_sample;
-	} else {
-		bit_per_sample =
-		    get_mi2s_bits_per_sample(mi2s_tx_cfg[dai_id].bit_format);
-		mi2s_clk[dai_id].clk_freq_in_hz =
-		    mi2s_tx_cfg[dai_id].sample_rate * 2 * bit_per_sample;
-	}
-}
-
 static int msm_mi2s_set_sclk(struct snd_pcm_substream *substream, bool enable)
 {
 	int ret = 0;
@@ -2867,12 +2852,6 @@ static int msm_mi2s_set_sclk(struct snd_pcm_substream *substream, bool enable)
 		dev_err(rtd->card->dev, "%s: Invalid port_id\n", __func__);
 		ret = port_id;
 		goto err;
-	}
-
-	if (enable) {
-		update_mi2s_clk_val(index, substream->stream);
-		dev_dbg(rtd->card->dev, "%s: clock rate %ul\n", __func__,
-			mi2s_clk[index].clk_freq_in_hz);
 	}
 
 	mi2s_clk[index].enable = enable;
@@ -4974,6 +4953,7 @@ static void lahaina_tdm_snd_shutdown(struct snd_pcm_substream *substream)
 	}
 }
 
+#ifndef CONFIG_AUXPCM_DISABLE
 static int lahaina_aux_snd_startup(struct snd_pcm_substream *substream)
 {
 	int ret = 0;
@@ -5035,6 +5015,7 @@ static void lahaina_aux_snd_shutdown(struct snd_pcm_substream *substream)
 		}
 	}
 }
+#endif
 
 static int msm_snd_cdc_dma_startup(struct snd_pcm_substream *substream)
 {
@@ -5082,6 +5063,11 @@ static void set_cps_config(struct snd_soc_pcm_runtime *rtd,
 
 	if (!num_ch) {
 		pr_err("%s: channel count is 0\n", __func__);
+		return;
+	}
+
+	if (!ch_mask) {
+		pr_err("%s: channel mask is 0\n", __func__);
 		return;
 	}
 
@@ -5139,8 +5125,14 @@ static void set_cps_config(struct snd_soc_pcm_runtime *rtd,
 		/* bits 24:27 carry read length in bytes */
 		val |= 1 << 24;
 
+		/* bits 16:19 carry command id */
+		val |= (i*2) << 16;
+
 		/* Update dev num in packed reg addr */
 		pdata->cps_config.spkr_dep_cfg[i].vbatt_pkd_reg_addr |= val;
+
+		val &= 0xFF0FFFF;
+		val |= ((i*2)+1) << 16;
 		pdata->cps_config.spkr_dep_cfg[i].temp_pkd_reg_addr |= val;
 		i++;
 		ch_configured++;
@@ -5310,6 +5302,7 @@ static int msm_mi2s_snd_startup(struct snd_pcm_substream *substream)
 	struct snd_soc_card *card = rtd->card;
 	struct msm_asoc_mach_data *pdata = snd_soc_card_get_drvdata(card);
 	int sample_rate = 0;
+	u32 bit_per_sample = 0;
 
 	dev_dbg(rtd->card->dev,
 		"%s: substream = %s  stream = %d, dai name %s, dai ID %d\n",
@@ -5331,39 +5324,49 @@ static int msm_mi2s_snd_startup(struct snd_pcm_substream *substream)
 	mutex_lock(&mi2s_intf_conf[index].lock);
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		sample_rate = mi2s_rx_cfg[index].sample_rate;
+		bit_per_sample =
+		    get_mi2s_bits_per_sample(mi2s_rx_cfg[index].bit_format);
 	} else if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
 		sample_rate = mi2s_tx_cfg[index].sample_rate;
+		bit_per_sample =
+		    get_mi2s_bits_per_sample(mi2s_tx_cfg[index].bit_format);
 	} else {
 		pr_err("%s: invalid stream %d\n", __func__, substream->stream);
 		ret = -EINVAL;
 		goto vote_err;
 	}
 
-	if (IS_MSM_INTERFACE_MI2S(index) && IS_FRACTIONAL(sample_rate)) {
-		if (pdata->lpass_audio_hw_vote == NULL) {
-			dev_err(rtd->card->dev, "%s: Invalid lpass audio hw node\n",
-				__func__);
-			ret = -EINVAL;
-			goto vote_err;
-		}
-		if (pdata->core_audio_vote_count == 0) {
-			ret = clk_prepare_enable(pdata->lpass_audio_hw_vote);
-			if (ret < 0) {
-				dev_err(rtd->card->dev, "%s: audio vote error\n",
-					__func__);
-				goto vote_err;
-			}
-		}
-		pdata->core_audio_vote_count++;
-		mi2s_intf_conf[index].audio_core_vote = true;
-	}
-
 	if (++mi2s_intf_conf[index].ref_cnt == 1) {
+		if (IS_MSM_INTERFACE_MI2S(index) && IS_FRACTIONAL(sample_rate)) {
+			if (pdata->lpass_audio_hw_vote == NULL) {
+				dev_err(rtd->card->dev, "%s: Invalid lpass audio hw node\n",
+					__func__);
+				ret = -EINVAL;
+				goto clean_up;
+			}
+			if (pdata->core_audio_vote_count == 0) {
+				ret = clk_prepare_enable(pdata->lpass_audio_hw_vote);
+				if (ret < 0) {
+					dev_err(rtd->card->dev, "%s: audio vote error\n",
+						__func__);
+					goto clean_up;
+				}
+			}
+			pdata->core_audio_vote_count++;
+			mi2s_intf_conf[index].audio_core_vote = true;
+		}
+
 		/* Check if msm needs to provide the clock to the interface */
 		if (!mi2s_intf_conf[index].msm_is_mi2s_master) {
 			mi2s_clk[index].clk_id = mi2s_ebit_clk[index];
 			fmt = SND_SOC_DAIFMT_CBM_CFM;
 		}
+
+		mi2s_clk[index].clk_freq_in_hz = (sample_rate *
+					MI2S_NUM_CHANNELS * bit_per_sample);
+		dev_dbg(rtd->card->dev, "%s: clock rate %ul\n", __func__,
+			mi2s_clk[index].clk_freq_in_hz);
+
 		ret = msm_mi2s_set_sclk(substream, true);
 		if (ret < 0) {
 			dev_err(rtd->card->dev,
@@ -5439,8 +5442,8 @@ static void msm_mi2s_snd_shutdown(struct snd_pcm_substream *substream)
 		if (ret < 0)
 			pr_err("%s:clock disable failed for MI2S (%d); ret=%d\n",
 				__func__, index, ret);
+		mi2s_disable_audio_vote(substream);
 	}
-	mi2s_disable_audio_vote(substream);
 	mutex_unlock(&mi2s_intf_conf[index].lock);
 }
 
@@ -5514,10 +5517,12 @@ err:
 	return ret;
 }
 
+#ifndef CONFIG_AUXPCM_DISABLE
 static struct snd_soc_ops lahaina_aux_be_ops = {
 	.startup = lahaina_aux_snd_startup,
 	.shutdown = lahaina_aux_snd_shutdown
 };
+#endif
 
 static struct snd_soc_ops lahaina_tdm_be_ops = {
 	.hw_params = lahaina_tdm_snd_hw_params,
@@ -6310,6 +6315,31 @@ static struct snd_soc_dai_link msm_common_misc_fe_dai_links[] = {
 		.id = MSM_FRONTEND_DAI_MULTIMEDIA10,
 		SND_SOC_DAILINK_REG(multimedia10),
 	},
+	{/* hw:x,44 */
+		.name = "Secondary MI2S_TX Hostless",
+		.stream_name = "Secondary MI2S_TX Hostless Capture",
+		.dynamic = 1,
+		.dpcm_capture = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		SND_SOC_DAILINK_REG(sec_mi2s_tx_hostless),
+	},
+	/* DISP PORT Hostless */
+	{/* hw:x,45 */
+		.name = "DISPLAY_PORT_RX_HOSTLESS",
+		.stream_name = "DISPLAY_PORT_RX_HOSTLESS",
+		.dynamic = 1,
+		.dpcm_playback = 1,
+		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
+			SND_SOC_DPCM_TRIGGER_POST},
+		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
+		.ignore_suspend = 1,
+		.ignore_pmdown_time = 1,
+		SND_SOC_DAILINK_REG(display_port_hostless),
+	},
 };
 
 static struct snd_soc_dai_link msm_common_ultrasound_dai_links[] = {
@@ -6870,6 +6900,7 @@ static struct snd_soc_dai_link msm_mi2s_be_dai_links[] = {
 	},
 };
 
+#ifndef CONFIG_AUXPCM_DISABLE
 static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 	/* Primary AUX PCM Backend DAI Links */
 	{
@@ -7012,6 +7043,7 @@ static struct snd_soc_dai_link msm_auxpcm_be_dai_links[] = {
 		SND_SOC_DAILINK_REG(sen_auxpcm_tx),
 	},
 };
+#endif
 
 static struct snd_soc_dai_link msm_wsa_cdc_dma_be_dai_links[] = {
 	/* WSA CDC DMA Backend DAI Links */
@@ -7239,7 +7271,9 @@ static struct snd_soc_dai_link msm_lahaina_dai_links[
 			ARRAY_SIZE(msm_common_ultrasound_dai_links) +
 			ARRAY_SIZE(msm_common_be_dai_links) +
 			ARRAY_SIZE(msm_mi2s_be_dai_links) +
+#ifndef CONFIG_AUXPCM_DISABLE
 			ARRAY_SIZE(msm_auxpcm_be_dai_links) +
+#endif
 			ARRAY_SIZE(msm_wsa_cdc_dma_be_dai_links) +
 			ARRAY_SIZE(msm_rx_tx_cdc_dma_be_dai_links) +
 			ARRAY_SIZE(msm_va_cdc_dma_be_dai_links) +
@@ -7546,7 +7580,6 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 	int total_links = 0;
 	int rc = 0;
 	u32 mi2s_audio_intf = 0;
-	u32 auxpcm_audio_intf = 0;
 	u32 val = 0;
 	int i = 0;
 	u32 is_dev_mars = 0;
@@ -7653,15 +7686,15 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 					ARRAY_SIZE(msm_mi2s_be_dai_links);
 			}
 		}
-
+#ifndef CONFIG_AUXPCM_DISABLE
 		rc = of_property_read_u32(dev->of_node,
 					  "qcom,auxpcm-audio-intf",
-					  &auxpcm_audio_intf);
+					  &val);
 		if (rc) {
 			dev_dbg(dev, "%s: No DT match Aux PCM interface\n",
 				__func__);
 		} else {
-			if (auxpcm_audio_intf) {
+			if (val) {
 				memcpy(msm_lahaina_dai_links + total_links,
 					msm_auxpcm_be_dai_links,
 					sizeof(msm_auxpcm_be_dai_links));
@@ -7669,6 +7702,7 @@ static struct snd_soc_card *populate_snd_card_dailinks(struct device *dev)
 					ARRAY_SIZE(msm_auxpcm_be_dai_links);
 			}
 		}
+#endif
 
 #if IS_ENABLED(CONFIG_AUDIO_QGKI)
 		rc = of_property_read_u32(dev->of_node,

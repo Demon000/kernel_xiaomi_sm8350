@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
 #ifndef __Q6AFE_V2_H__
 #define __Q6AFE_V2_H__
@@ -34,6 +34,7 @@
 #define RT_PROXY_DAI_001_TX	0xF0
 #define RT_PROXY_DAI_002_RX	0xF1
 #define RT_PROXY_DAI_002_TX	0xE1
+#define RT_PROXY_DAI_003_RX	0xE2
 #define RT_PROXY_DAI_003_TX	0xF2
 #define VIRTUAL_ID_TO_PORTID(val) ((val & 0xF) | 0x2000)
 #define PORTID_TO_IDX(val)	((val & 0xF) >> 1)
@@ -52,6 +53,14 @@
 #define AFE_API_VERSION_V9		9
 /* for external mclk dynamic switch */
 #define AFE_API_VERSION_V8		8
+#define AFE_API_VERSION_V10		10
+
+#define AFE_SAMPLING_RATE_8KHZ 8000
+
+/* the different modes for data*/
+#define BAP_UNICAST          1
+#define BAP_BROADCAST        2
+#define BAP_BA_SIMULCAST     3
 
 
 typedef int (*routing_cb)(int port);
@@ -427,6 +436,7 @@ int afe_get_power_mode_cfg(u16 port_id, u32 *enable_flag);
 int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 	u32 rate);
 int afe_set_tws_channel_mode(u32 foramt, u16 port_id, u32 channel_mode);
+int afe_set_lc3_channel_mode(u32 foramt, u16 port_id, u32 channel_mode);
 int afe_port_start_v2(u16 port_id, union afe_port_config *afe_config,
 		      u32 rate, u16 afe_in_channels, u16 afe_in_bit_width,
 		      struct afe_enc_config *enc_config,
@@ -511,6 +521,8 @@ int afe_send_custom_tdm_header_cfg(
 int afe_tdm_port_start(u16 port_id, struct afe_tdm_port_config *tdm_port,
 		       u32 rate, u16 num_groups);
 void afe_set_routing_callback(routing_cb cb);
+int afe_port_send_logging_cfg(u16 port_id,
+	struct afe_param_id_port_data_log_disable_t *log_disable);
 int afe_get_av_dev_drift(struct afe_param_id_dev_timing_stats *timing_stats,
 		u16 port);
 int afe_get_sp_rx_tmax_xmax_logging_data(
@@ -542,6 +554,8 @@ enum {
 	AFE_LPASS_CORE_HW_DCODEC_BLOCK,
 	AFE_LPASS_CORE_HW_VOTE_MAX
 };
+int afe_set_source_clk(u16 port_id, const char *clk_src);
+void afe_set_clk_src_array(const char *clk_src[CLK_SRC_MAX]);
 int afe_set_mclk_src_cfg(u16 port_id, uint32_t mclk_src_id, uint32_t mclk_freq);
 
 typedef int (*afe_enable_mclk_and_get_info_cb_func) (void *private_data,

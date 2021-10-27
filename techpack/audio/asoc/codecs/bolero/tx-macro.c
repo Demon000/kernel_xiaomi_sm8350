@@ -50,9 +50,13 @@
 
 struct tx_macro_priv *g_tx_priv;
 
-static int tx_unmute_delay = TX_MACRO_DMIC_UNMUTE_DELAY_MS;
-module_param(tx_unmute_delay, int, 0664);
-MODULE_PARM_DESC(tx_unmute_delay, "delay to unmute the tx path");
+static int tx_amic_unmute_delay = TX_MACRO_AMIC_UNMUTE_DELAY_MS;
+module_param(tx_amic_unmute_delay, int, 0664);
+MODULE_PARM_DESC(tx_amic_unmute_delay, "delay to unmute the tx amic path");
+
+static int tx_dmic_unmute_delay = TX_MACRO_DMIC_UNMUTE_DELAY_MS;
+module_param(tx_dmic_unmute_delay, int, 0664);
+MODULE_PARM_DESC(tx_dmic_unmute_delay, "delay to unmute the tx dmic path");
 
 static const DECLARE_TLV_DB_SCALE(digital_gain, 0, 1, 0);
 
@@ -496,7 +500,8 @@ static bool is_amic_enabled(struct snd_soc_component *component, int decimator)
 	adc_mux_reg = BOLERO_CDC_TX_INP_MUX_ADC_MUX0_CFG1 +
 			TX_MACRO_ADC_MUX_CFG_OFFSET * decimator;
 	if (snd_soc_component_read32(component, adc_mux_reg) & SWR_MIC) {
-		if (tx_priv->version == BOLERO_VERSION_2_1)
+		if (tx_priv->version == BOLERO_VERSION_2_1 ||
+			tx_priv->version == BOLERO_VERSION_2_0)
 			return true;
 		adc_reg = BOLERO_CDC_TX_INP_MUX_ADC_MUX0_CFG0 +
 			TX_MACRO_ADC_MUX_CFG_OFFSET * decimator;
@@ -1144,13 +1149,16 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 		if (is_amic_enabled(component, decimator)) {
 			hpf_delay = TX_MACRO_AMIC_HPF_DELAY_MS;
 			unmute_delay = TX_MACRO_AMIC_UNMUTE_DELAY_MS;
+			if (unmute_delay < tx_amic_unmute_delay)
+				unmute_delay = tx_amic_unmute_delay;
+		} else {
+			if (unmute_delay < tx_dmic_unmute_delay)
+				unmute_delay = tx_dmic_unmute_delay;
 		}
-		if (tx_unmute_delay < unmute_delay)
-			tx_unmute_delay = unmute_delay;
 		/* schedule work queue to Remove Mute */
 		queue_delayed_work(system_freezable_wq,
 				   &tx_priv->tx_mute_dwork[decimator].dwork,
-				   msecs_to_jiffies(tx_unmute_delay));
+				   msecs_to_jiffies(unmute_delay));
 		if (tx_priv->tx_hpf_work[decimator].hpf_cut_off_freq !=
 							CF_MIN_3DB_150HZ) {
 			queue_delayed_work(system_freezable_wq,
@@ -2768,6 +2776,7 @@ static int tx_macro_tx_va_mclk_enable(struct tx_macro_priv *tx_priv,
 			}
 			bolero_clk_rsc_fs_gen_request(tx_priv->dev,
 						  true);
+			mutex_lock(&tx_priv->mclk_lock);
 			if (tx_priv->tx_mclk_users == 0) {
 				regmap_update_bits(regmap,
 					BOLERO_CDC_TX_TOP_CSR_FREQ_MCLK,
@@ -2780,6 +2789,7 @@ static int tx_macro_tx_va_mclk_enable(struct tx_macro_priv *tx_priv,
 					0x01, 0x01);
 			}
 			tx_priv->tx_mclk_users++;
+			mutex_unlock(&tx_priv->mclk_lock);
 		}
 		if (tx_priv->swr_clk_users == 0) {
 			dev_dbg(tx_priv->dev, "%s: reset_swr: %d\n",
@@ -2824,10 +2834,12 @@ static int tx_macro_tx_va_mclk_enable(struct tx_macro_priv *tx_priv,
 		if (clk_type == TX_MCLK)
 			tx_macro_mclk_enable(tx_priv, 0);
 		if (clk_type == VA_MCLK) {
+			mutex_lock(&tx_priv->mclk_lock);
 			if (tx_priv->tx_mclk_users <= 0) {
 				dev_err(tx_priv->dev, "%s: clock already disabled\n",
 						__func__);
 				tx_priv->tx_mclk_users = 0;
+				mutex_unlock(&tx_priv->mclk_lock);
 				goto tx_clk;
 			}
 			tx_priv->tx_mclk_users--;
@@ -2839,7 +2851,7 @@ static int tx_macro_tx_va_mclk_enable(struct tx_macro_priv *tx_priv,
 					BOLERO_CDC_TX_CLK_RST_CTRL_MCLK_CONTROL,
 					0x01, 0x00);
 			}
-
+			mutex_unlock(&tx_priv->mclk_lock);
 			bolero_clk_rsc_fs_gen_request(tx_priv->dev,
 						false);
 			ret = bolero_clk_rsc_request_clock(tx_priv->dev,
@@ -2962,22 +2974,25 @@ ret:
 
 static int tx_macro_core_vote(void *handle, bool enable)
 {
+	int rc = 0;
 	struct tx_macro_priv *tx_priv = (struct tx_macro_priv *) handle;
 
 	if (tx_priv == NULL) {
 		pr_err("%s: tx priv data is NULL\n", __func__);
 		return -EINVAL;
 	}
+
 	if (enable) {
 		pm_runtime_get_sync(tx_priv->dev);
+		if (bolero_check_core_votes(tx_priv->dev))
+			rc = 0;
+		else
+			rc = -ENOTSYNC;
+	} else {
 		pm_runtime_put_autosuspend(tx_priv->dev);
 		pm_runtime_mark_last_busy(tx_priv->dev);
 	}
-
-	if (bolero_check_core_votes(tx_priv->dev))
-		return 0;
-	else
-		return -EINVAL;
+	return rc;
 }
 
 static int tx_macro_swrm_clock(void *handle, bool enable)
@@ -3366,17 +3381,7 @@ static void tx_macro_add_child_devices(struct work_struct *work)
 					__func__, ctrl_num);
 				goto fail_pdev_add;
 			}
-		}
 
-		ret = platform_device_add(pdev);
-		if (ret) {
-			dev_err(&pdev->dev,
-				"%s: Cannot add platform device\n",
-				__func__);
-			goto fail_pdev_add;
-		}
-
-		if (tx_swr_master_node) {
 			temp = krealloc(swr_ctrl_data,
 					(ctrl_num + 1) * sizeof(
 					struct tx_macro_swr_ctrl_data),
@@ -3389,10 +3394,19 @@ static void tx_macro_add_child_devices(struct work_struct *work)
 			swr_ctrl_data[ctrl_num].tx_swr_pdev = pdev;
 			ctrl_num++;
 			dev_dbg(&pdev->dev,
-				"%s: Added soundwire ctrl device(s)\n",
+				"%s: Adding soundwire ctrl device(s)\n",
 				__func__);
 			tx_priv->swr_ctrl_data = swr_ctrl_data;
 		}
+
+		ret = platform_device_add(pdev);
+		if (ret) {
+			dev_err(&pdev->dev,
+				"%s: Cannot add platform device\n",
+				__func__);
+			goto fail_pdev_add;
+		}
+
 		if (tx_priv->child_count < TX_MACRO_CHILD_DEVICES_MAX)
 			tx_priv->pdev_child_devices[
 					tx_priv->child_count++] = pdev;
@@ -3567,13 +3581,13 @@ static int tx_macro_probe(struct platform_device *pdev)
 			"%s: register macro failed\n", __func__);
 		goto err_reg_macro;
 	}
-	if (is_used_tx_swr_gpio)
-		schedule_work(&tx_priv->tx_macro_add_child_devices_work);
 	pm_runtime_set_autosuspend_delay(&pdev->dev, AUTO_SUSPEND_DELAY);
 	pm_runtime_use_autosuspend(&pdev->dev);
 	pm_runtime_set_suspended(&pdev->dev);
 	pm_suspend_ignore_children(&pdev->dev, true);
 	pm_runtime_enable(&pdev->dev);
+	if (is_used_tx_swr_gpio)
+		schedule_work(&tx_priv->tx_macro_add_child_devices_work);
 
 	return 0;
 err_reg_macro:

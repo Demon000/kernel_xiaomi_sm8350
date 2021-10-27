@@ -2,7 +2,6 @@
 ifneq ($(CONFIG_ARCH_QTI_VM), y)
 ifeq ($(CONFIG_QTI_QUIN_GVM), y)
 include $(srctree)/techpack/audio/config/gvmauto.conf
-export
 endif
 ifeq ($(CONFIG_ARCH_SDXPOORWILLS), y)
 include $(srctree)/techpack/audio/config/sdxpoorwillsauto.conf
@@ -27,7 +26,9 @@ include $(srctree)/techpack/audio/config/holiauto.conf
 endif
 ifeq ($(CONFIG_ARCH_SA8155), y)
 include $(srctree)/techpack/audio/config/sa8155auto.conf
-export
+endif
+ifeq ($(CONFIG_ARCH_SA6155), y)
+include $(srctree)/techpack/audio/config/sa6155auto.conf
 endif
 endif
 # Use USERINCLUDE when you must reference the UAPI directories only.
@@ -39,6 +40,7 @@ USERINCLUDE     += \
 LINUXINCLUDE    += \
                 -I$(srctree)/techpack/audio/include/uapi \
                 -I$(srctree)/techpack/audio/include/uapi/audio \
+                -I$(srctree)/techpack/audio/include/asoc \
                 -I$(srctree)/techpack/audio/include
 
 ifeq ($(CONFIG_QTI_QUIN_GVM), y)
@@ -72,6 +74,10 @@ endif
 ifeq ($(CONFIG_ARCH_SA8155), y)
 LINUXINCLUDE    += \
                 -include $(srctree)/techpack/audio/config/sa8155autoconf.h
+endif
+ifeq ($(CONFIG_ARCH_SA6155), y)
+LINUXINCLUDE    += \
+                -include $(srctree)/techpack/audio/config/sa6155autoconf.h
 endif
 
 obj-y += soc/

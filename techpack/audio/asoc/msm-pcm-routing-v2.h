@@ -27,6 +27,7 @@
 #define LPASS_BE_INT_FM_TX "INT_FM_TX"
 #define LPASS_BE_AFE_PCM_RX "RT_PROXY_DAI_001_RX"
 #define LPASS_BE_AFE_PCM_TX "RT_PROXY_DAI_002_TX"
+#define LPASS_BE_AFE_PCM_RX1 "RT_PROXY_DAI_003_RX"
 #define LPASS_BE_AUXPCM_RX "AUX_PCM_RX"
 #define LPASS_BE_AUXPCM_TX "AUX_PCM_TX"
 #define LPASS_BE_SEC_AUXPCM_RX "SEC_AUX_PCM_RX"
@@ -513,6 +514,7 @@ enum {
 	MSM_BACKEND_DAI_PROXY_RX,
 	MSM_BACKEND_DAI_PROXY_TX,
 	MSM_BACKEND_DAI_HDMI_RX_MS,
+	MSM_BACKEND_DAI_AFE_PCM_RX1,
 	MSM_BACKEND_DAI_MAX,
 };
 
@@ -551,7 +553,7 @@ enum {
 #define ADM_PP_PARAM_MUTE_BIT			1
 #define ADM_PP_PARAM_LATENCY_ID			1
 #define ADM_PP_PARAM_LATENCY_BIT		2
-#define BE_DAI_PORT_SESSIONS_IDX_MAX		4
+#define BE_DAI_PORT_SESSIONS_IDX_MAX		5
 #define BE_DAI_FE_SESSIONS_IDX_MAX		2
 
 #define STREAM_TYPE_ASM 0
@@ -611,6 +613,7 @@ struct msm_pcm_stream_app_type_cfg {
 	int acdb_dev_id;
 	int sample_rate;
 	uint32_t copp_token;
+	int bit_width;
 };
 
 /* dai_id: front-end ID,

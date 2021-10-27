@@ -66,7 +66,7 @@
 #define COMPR_PLAYBACK_MAX_NUM_FRAGMENTS (16 * 4)
 
 #define COMPRESSED_LR_VOL_MAX_STEPS	0x2000
-const DECLARE_TLV_DB_LINEAR(msm_compr_vol_gain, 0,
+static const DECLARE_TLV_DB_LINEAR(msm_compr_vol_gain, 0,
 				COMPRESSED_LR_VOL_MAX_STEPS);
 
 /* Stream id switches between 1 and 2 */
@@ -190,7 +190,7 @@ struct msm_compr_audio {
 	spinlock_t lock;
 };
 
-const u32 compr_codecs[] = {
+static const u32 compr_codecs[] = {
 	SND_AUDIOCODEC_AC3, SND_AUDIOCODEC_EAC3, SND_AUDIOCODEC_DTS,
 	SND_AUDIOCODEC_TRUEHD, SND_AUDIOCODEC_IEC61937};
 
@@ -711,6 +711,11 @@ static void compr_event_handler(uint32_t opcode,
 			pr_debug("%s: issue CMD_RUN", __func__);
 			q6asm_run_nowait(prtd->audio_client, 0, 0, 0);
 			snd_compr_drain_notify(cstream);
+			/*
+			 * Next track requires state of running. Otherwise,
+			 * it fails.
+			*/
+			cstream->runtime->state = SNDRV_PCM_STATE_RUNNING;
 			spin_unlock_irqrestore(&prtd->lock, flags);
 			break;
 		}
@@ -886,8 +891,7 @@ static void compr_event_handler(uint32_t opcode,
 		}
 		atomic_set(&prtd->eos, 0);
 		stream_index = STREAM_ARRAY_INDEX(stream_id);
-		if (stream_index >= MAX_NUMBER_OF_STREAMS ||
-		    stream_index < 0) {
+		if (stream_index >= MAX_NUMBER_OF_STREAMS) {
 			pr_err("%s: Invalid stream index %d", __func__,
 				stream_index);
 			spin_unlock_irqrestore(&prtd->lock, flags);
@@ -1577,7 +1581,7 @@ static int msm_compr_configure_dsp_for_playback
 
 	pr_debug("%s: stream_id %d\n", __func__, ac->stream_id);
 	stream_index = STREAM_ARRAY_INDEX(ac->stream_id);
-	if (stream_index >= MAX_NUMBER_OF_STREAMS || stream_index < 0) {
+	if (stream_index >= MAX_NUMBER_OF_STREAMS) {
 		pr_err("%s: Invalid stream index:%d", __func__, stream_index);
 		return -EINVAL;
 	}
@@ -1823,7 +1827,7 @@ static int msm_compr_configure_dsp_for_capture(struct snd_compr_stream *cstream)
 	}
 
 	stream_index = STREAM_ARRAY_INDEX(ac->stream_id);
-	if (stream_index >= MAX_NUMBER_OF_STREAMS || stream_index < 0) {
+	if (stream_index >= MAX_NUMBER_OF_STREAMS) {
 		pr_err("%s: Invalid stream index:%d", __func__, stream_index);
 		return -EINVAL;
 	}
@@ -1876,6 +1880,7 @@ static int msm_compr_configure_dsp_for_capture(struct snd_compr_stream *cstream)
 			ret = q6asm_enc_cfg_blk_pcm_format_support_v5(
 					prtd->audio_client,
 					prtd->sample_rate, prtd->num_channels,
+					true, NULL,
 					bits_per_sample, sample_word_size,
 					ASM_LITTLE_ENDIAN, DEFAULT_QF);
 		else
@@ -2164,7 +2169,7 @@ static int msm_compr_playback_free(struct snd_compr_stream *cstream)
 	stream_id = ac->stream_id;
 	stream_index = STREAM_ARRAY_INDEX(NEXT_STREAM_ID(stream_id));
 
-	if ((stream_index < MAX_NUMBER_OF_STREAMS && stream_index >= 0) &&
+	if ((stream_index < MAX_NUMBER_OF_STREAMS) &&
 	    (prtd->gapless_state.stream_opened[stream_index])) {
 		prtd->gapless_state.stream_opened[stream_index] = 0;
 		spin_unlock_irqrestore(&prtd->lock, flags);
@@ -2174,7 +2179,7 @@ static int msm_compr_playback_free(struct snd_compr_stream *cstream)
 	}
 
 	stream_index = STREAM_ARRAY_INDEX(stream_id);
-	if ((stream_index < MAX_NUMBER_OF_STREAMS && stream_index >= 0) &&
+	if ((stream_index < MAX_NUMBER_OF_STREAMS) &&
 	    (prtd->gapless_state.stream_opened[stream_index])) {
 		prtd->gapless_state.stream_opened[stream_index] = 0;
 		spin_unlock_irqrestore(&prtd->lock, flags);
@@ -2258,7 +2263,7 @@ static int msm_compr_capture_free(struct snd_compr_stream *cstream)
 	stream_id = ac->stream_id;
 
 	stream_index = STREAM_ARRAY_INDEX(stream_id);
-	if ((stream_index < MAX_NUMBER_OF_STREAMS && stream_index >= 0)) {
+	if (stream_index < MAX_NUMBER_OF_STREAMS) {
 		spin_unlock_irqrestore(&prtd->lock, flags);
 		pr_debug("close stream %d", stream_id);
 		q6asm_stream_cmd(ac, CMD_CLOSE, stream_id);
@@ -2330,8 +2335,7 @@ static int msm_compr_set_params(struct snd_compr_stream *cstream,
 	pr_debug("%s: sample_rate %d\n", __func__, prtd->sample_rate);
 
 	/* prtd->codec_param.codec.reserved[0] is for compr_passthr */
-	if ((prtd->codec_param.codec.reserved[0] >= LEGACY_PCM &&
-	    prtd->codec_param.
+	if ((prtd->codec_param.
 	    codec.reserved[0] <= COMPRESSED_PASSTHROUGH_DSD) ||
 	    (prtd->codec_param.
 	    codec.reserved[0] == COMPRESSED_PASSTHROUGH_IEC61937))
@@ -2550,9 +2554,7 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 	struct audio_client *ac = prtd->audio_client;
 	unsigned long fe_id = rtd->dai_link->id;
 	int rc = 0;
-#if IS_ENABLED(CONFIG_AUDIO_QGKI)
 	int bytes_to_write;
-#endif
 	unsigned long flags;
 	int stream_id;
 	uint32_t stream_index;
@@ -2941,6 +2943,21 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 			q6asm_run_nowait(prtd->audio_client, 0, 0, 0);
 		}
 #else
+		if ((prtd->bytes_received > prtd->copied_total) &&
+			(prtd->bytes_received < runtime->fragment_size)) {
+			pr_debug("%s: send the only partial buffer to dsp\n",
+					__func__);
+			bytes_to_write = prtd->bytes_received
+						- prtd->copied_total;
+			if (bytes_to_write > 0) {
+				pr_debug("%s: send %d partial bytes at the end",
+						__func__, bytes_to_write);
+				atomic_set(&prtd->xrun, 0);
+				prtd->last_buffer = 1;
+				msm_compr_send_buffer(prtd);
+			}
+		}
+
 		atomic_set(&prtd->drain, 1);
 		spin_unlock_irqrestore(&prtd->lock, flags);
 #endif
@@ -2964,8 +2981,7 @@ static int msm_compr_trigger(struct snd_compr_stream *cstream, int cmd)
 		 * called immediately.
 		 */
 		stream_index = STREAM_ARRAY_INDEX(stream_id);
-		if (stream_index >= MAX_NUMBER_OF_STREAMS ||
-		    stream_index < 0) {
+		if (stream_index >= MAX_NUMBER_OF_STREAMS) {
 			pr_err("%s: Invalid stream index: %d", __func__,
 				stream_index);
 			spin_unlock_irqrestore(&prtd->lock, flags);
@@ -4214,8 +4230,7 @@ static int msm_compr_adsp_stream_cmd_put(struct snd_kcontrol *kcontrol,
 	}
 
 	event_data = (struct msm_adsp_event_data *)ucontrol->value.bytes.data;
-	if ((event_data->event_type < ADSP_STREAM_PP_EVENT) ||
-	    (event_data->event_type >= ADSP_STREAM_EVENT_MAX)) {
+	if (event_data->event_type >= ADSP_STREAM_EVENT_MAX) {
 		pr_err("%s: invalid event_type=%d",
 			__func__, event_data->event_type);
 		ret = -EINVAL;

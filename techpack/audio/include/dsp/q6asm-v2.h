@@ -420,6 +420,8 @@ void *q6asm_is_cpu_buf_avail(int dir, struct audio_client *ac,
 
 int q6asm_cpu_buf_release(int dir, struct audio_client *ac);
 
+int q6asm_cpu_buf_release_nolock(int dir, struct audio_client *ac);
+
 void *q6asm_is_cpu_buf_avail_nolock(int dir, struct audio_client *ac,
 					uint32_t *size, uint32_t *idx);
 
@@ -476,11 +478,13 @@ int q6asm_enc_cfg_blk_pcm_format_support_v4(struct audio_client *ac,
 					    uint16_t mode);
 
 int q6asm_enc_cfg_blk_pcm_format_support_v5(struct audio_client *ac,
-					uint32_t rate, uint32_t channels,
-					uint16_t bits_per_sample,
-					uint16_t sample_word_size,
-					uint16_t endianness,
-					uint16_t mode);
+					    uint32_t rate, uint32_t channels,
+					    bool use_default_chmap,
+					    char *channel_map,
+					    uint16_t bits_per_sample,
+					    uint16_t sample_word_size,
+					    uint16_t endianness,
+					    uint16_t mode);
 
 int q6asm_enc_cfg_blk_custom(struct audio_client *ac,
 			uint32_t sample_rate, uint32_t channels,
