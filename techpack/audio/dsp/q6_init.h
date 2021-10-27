@@ -35,6 +35,11 @@ void msm_mdf_exit(void);
 int elliptic_driver_init(void);
 #endif
 /* for elus end */
+/* for mius start */
+#ifdef CONFIG_MIUS_PROXIMITY
+int mius_driver_init(void);
+#endif
+/* for mius end */
 static inline int msm_mdf_init(void)
 {
 	return 0;
@@ -81,6 +86,11 @@ void q6asm_exit(void);
 int elliptic_driver_exit(void);
 #endif
 /* for elus end */
+/* for mius start */
+#ifdef CONFIG_MIUS_PROXIMITY
+int mius_driver_exit(void);
+#endif
+/* for mius end */
 void afe_exit(void);
 void adm_exit(void);
 void adsp_err_exit(void);

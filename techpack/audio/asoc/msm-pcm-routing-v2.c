@@ -34,6 +34,12 @@
 #include <dsp/apr_elliptic.h>
 #include <elliptic/elliptic_mixer_controls.h>
 #endif
+/* for mius start */
+#ifdef CONFIG_MIUS_PROXIMITY
+#include <dsp/apr_mius.h>
+#include <mius/mius_mixer_controls.h>
+#endif
+/* for mius end */
 
 #include "msm-pcm-routing-v2.h"
 #include "msm-pcm-routing-devdep.h"
@@ -31782,6 +31788,11 @@ static int msm_routing_probe(struct snd_soc_component *component)
 	snd_soc_add_component_controls(component,
 			port_multi_channel_map_mixer_controls,
 			ARRAY_SIZE(port_multi_channel_map_mixer_controls));
+	/* for mius start */
+#ifdef CONFIG_MIUS_PROXIMITY
+	mius_add_component_controls(component);
+#endif
+	/* for mius end */
 #ifdef CONFIG_MSM_CSPL
 	msm_crus_pb_add_controls(component);
 #endif
