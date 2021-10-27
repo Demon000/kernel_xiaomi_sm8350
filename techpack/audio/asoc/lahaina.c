@@ -6513,6 +6513,7 @@ static struct snd_soc_dai_link msm_common_be_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		SND_SOC_DAILINK_REG(tert_tdm_rx_0),
 	},
+#ifndef CONFIG_SND_SOC_TFA9874
 	{
 		.name = LPASS_BE_TERT_TDM_RX_1,
 		.stream_name = "Tertiary TDM1 Playback",
@@ -6525,6 +6526,7 @@ static struct snd_soc_dai_link msm_common_be_dai_links[] = {
 		.ignore_pmdown_time = 1,
 		SND_SOC_DAILINK_REG(tert_tdm_rx_1),
 	},
+#endif
 	{
 		.name = LPASS_BE_TERT_TDM_TX_0,
 		.stream_name = "Tertiary TDM0 Capture",
