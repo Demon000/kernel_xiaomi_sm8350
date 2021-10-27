@@ -33,7 +33,6 @@
 #endif
 #define WAKELOCK_TIMEOUT	5000
 #define AFE_CLK_TOKEN	1024
-#define AFE_NOWAIT_TOKEN	2048
 
 #define SP_V4_NUM_MAX_SPKRS SP_V2_NUM_MAX_SPKRS
 
@@ -1149,7 +1148,7 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 				if(data->token == AFE_CLK_TOKEN) {
 					atomic_set(&this_afe.clk_state, 0);
 					wake_up(&this_afe.clk_wait);
-				} else if(data->token != AFE_NOWAIT_TOKEN) {
+				} else {
 					atomic_set(&this_afe.state, 0);
 					if (afe_token_is_valid(data->token))
 						wake_up(&this_afe.wait[data->token]);
@@ -7167,7 +7166,7 @@ int afe_pseudo_port_start_nowait(u16 port_id)
 	start.hdr.pkt_size = sizeof(start);
 	start.hdr.src_port = 0;
 	start.hdr.dest_port = 0;
-	start.hdr.token = AFE_NOWAIT_TOKEN;
+	start.hdr.token = 0;
 	start.hdr.opcode = AFE_PSEUDOPORT_CMD_START;
 	start.port_id = port_id;
 	start.timing = 1;
@@ -7256,10 +7255,11 @@ int afe_pseudo_port_stop_nowait(u16 port_id)
 	stop.hdr.pkt_size = sizeof(stop);
 	stop.hdr.src_port = 0;
 	stop.hdr.dest_port = 0;
-	stop.hdr.token = AFE_NOWAIT_TOKEN;
+	stop.hdr.token = 0;
 	stop.hdr.opcode = AFE_PSEUDOPORT_CMD_STOP;
 	stop.port_id = port_id;
 	stop.reserved = 0;
+	stop.hdr.token = index;
 
 	ret = afe_apr_send_pkt(&stop, NULL);
 	if (ret)
@@ -7772,7 +7772,7 @@ int afe_cmd_memory_map_nowait(int port_id, phys_addr_t dma_addr_p,
 	mregion->hdr.pkt_size = sizeof(mregion);
 	mregion->hdr.src_port = 0;
 	mregion->hdr.dest_port = 0;
-	mregion->hdr.token = AFE_NOWAIT_TOKEN;
+	mregion->hdr.token = 0;
 	mregion->hdr.opcode = AFE_SERVICE_CMD_SHARED_MEM_MAP_REGIONS;
 	mregion->mem_pool_id = ADSP_MEMORY_MAP_SHMEM8_4K_POOL;
 	mregion->num_regions = 1;
@@ -7941,7 +7941,7 @@ int afe_cmd_memory_unmap_nowait(u32 mem_map_handle)
 	mregion.hdr.pkt_size = sizeof(mregion);
 	mregion.hdr.src_port = 0;
 	mregion.hdr.dest_port = 0;
-	mregion.hdr.token = AFE_NOWAIT_TOKEN;
+	mregion.hdr.token = 0;
 	mregion.hdr.opcode = AFE_SERVICE_CMD_SHARED_MEM_UNMAP_REGIONS;
 	mregion.mem_map_handle = mem_map_handle;
 
@@ -9113,7 +9113,7 @@ int afe_port_stop_nowait(int port_id)
 	stop.hdr.pkt_size = sizeof(stop);
 	stop.hdr.src_port = 0;
 	stop.hdr.dest_port = 0;
-	stop.hdr.token = AFE_NOWAIT_TOKEN;
+	stop.hdr.token = 0;
 	stop.hdr.opcode = AFE_PORT_CMD_DEVICE_STOP;
 	stop.port_id = port_id;
 	stop.reserved = 0;
