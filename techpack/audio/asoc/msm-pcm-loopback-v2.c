@@ -524,8 +524,9 @@ static int msm_pcm_prepare(struct snd_pcm_substream *substream)
 			return -EINVAL;
 		}
 
-		if (q6asm_send_cal(pcm->audio_client) < 0)
-			pr_info("%s : Send audio cal failed\n", __func__);
+		ret = q6asm_send_cal(pcm->audio_client);
+		if (ret < 0)
+			pr_err("%s : Send audio cal failed : %d", __func__, ret);
 
 		msm_pcm_routing_reg_phy_stream(soc_pcm_tx->dai_link->id,
 			pcm->audio_client->perf_mode,
