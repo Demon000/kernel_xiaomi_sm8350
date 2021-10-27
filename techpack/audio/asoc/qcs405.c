@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 #include <linux/clk.h>
 #include <linux/delay.h>
@@ -220,8 +220,6 @@ struct msm_asoc_wcd93xx_codec {
 
 static const char *const pin_states[] = {"sleep", "i2s-active",
 					 "tdm-active"};
-
-const char *clk_src_name[CLK_SRC_MAX];
 
 enum {
 	TDM_0 = 0,
@@ -7321,17 +7319,10 @@ static int msm_meta_mi2s_snd_startup(struct snd_pcm_substream *substream)
 
 		if (i == 0) {
 			port_id = msm_get_port_id(rtd->dai_link->id);
-			if (meta_mi2s_rx_cfg[index].sample_rate
-					% SAMPLING_RATE_8KHZ) {
-				if (clk_src_name[CLK_SRC_FRACT] != NULL)
-					ret = afe_set_source_clk(port_id,
-							clk_src_name[CLK_SRC_FRACT]);
-			} else if (clk_src_name[CLK_SRC_INTEGRAL] != NULL) {
-				ret = afe_set_source_clk(port_id,
-						clk_src_name[CLK_SRC_INTEGRAL]);
-			}
+			ret = afe_set_clk_id(port_id,
+					     mi2s_clk[member_port].clk_id);
 			if (ret < 0)
-				pr_err("%s: afe_set_source_name fail %d\n",
+				pr_err("%s: afe_set_clk_id fail %d\n",
 					 __func__, ret);
 
 			ret = snd_soc_dai_set_fmt(cpu_dai, fmt);
@@ -10522,8 +10513,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 	const char *micb_voltage_str = "qcom,tdm-vdd-micb-voltage";
 	const char *micb_current_str = "qcom,tdm-vdd-micb-current";
 	u32 v_base_addr;
-	const char *clk_src_name_str_integ = "qcom,clk-src-name-integ";
-	const char *clk_src_name_str_fract = "qcom,clk-src-name-fract";
 
 	if (!pdev->dev.of_node) {
 		dev_err(&pdev->dev, "No platform supplied from device tree\n");
@@ -10560,23 +10549,6 @@ static int msm_asoc_machine_probe(struct platform_device *pdev)
 		}
 	}
 
-	ret = of_property_read_string_index(pdev->dev.of_node,
-			clk_src_name_str_integ, 0,
-			&clk_src_name[CLK_SRC_INTEGRAL]);
-	if (ret)
-		dev_err(&pdev->dev,
-			"No clk src name[%d] from device tree\n",
-			CLK_SRC_INTEGRAL);
-	ret = of_property_read_string_index(pdev->dev.of_node,
-			clk_src_name_str_fract, 0,
-			&clk_src_name[CLK_SRC_FRACT]);
-	if (ret)
-		dev_err(&pdev->dev,
-			"No clk src name[%d] from device tree\n",
-			CLK_SRC_FRACT);
-	if (clk_src_name[CLK_SRC_INTEGRAL] != NULL &&
-			clk_src_name[CLK_SRC_FRACT] != NULL)
-		afe_set_clk_src_array(clk_src_name);
 	/* test for ep92 HDMI bridge and update dai links accordingly */
 	ret = msm_detect_ep92_dev(pdev, card);
 	if (ret)
