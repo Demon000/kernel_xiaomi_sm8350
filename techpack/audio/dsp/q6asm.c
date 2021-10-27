@@ -3549,7 +3549,7 @@ static int q6asm_open_read_version_adaptor(struct audio_client *ac,
 int q6asm_open_read_with_retry(struct audio_client *ac, uint32_t format,
 			uint16_t bits_per_sample, bool ts_mode)
 {
-	int i = 0, rc = 0;
+	int i, rc;
 
 	mutex_lock(&session_lock);
 	for (i = 0; i < ASM_ACTIVE_STREAMS_ALLOWED; i++) {
@@ -3924,7 +3924,7 @@ static int q6asm_open_write_version_adaptor(struct audio_client *ac,
 int q6asm_open_write_with_retry(struct audio_client *ac, uint32_t format,
 			uint16_t bits_per_sample)
 {
-	int i = 0, rc = 0;
+	int i, rc;
 
 	mutex_lock(&session_lock);
 	for (i = 0; i < ASM_ACTIVE_STREAMS_ALLOWED; i++) {
@@ -4369,7 +4369,7 @@ EXPORT_SYMBOL(q6asm_open_loopback_v2);
 int q6asm_open_loopback_with_retry(struct audio_client *ac,
 				uint16_t bits_per_sample)
 {
-	int i = 0, rc = 0;
+	int i, rc;
 
 	mutex_lock(&session_lock);
 	for (i = 0; i < ASM_ACTIVE_STREAMS_ALLOWED; i++) {
