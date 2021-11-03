@@ -1157,7 +1157,7 @@ static int tx_macro_enable_dec(struct snd_soc_dapm_widget *w,
 				&tx_priv->tx_hpf_work[decimator].dwork,
 				msecs_to_jiffies(hpf_delay));
 		snd_soc_component_update_bits(component,
-				hpf_gate_reg, 0x02, 0x02);
+				hpf_gate_reg, 0x03, 0x02);
 		if (!is_smic_enabled(component, decimator))
 			snd_soc_component_update_bits(component,
 				hpf_gate_reg, 0x02, 0x00);
