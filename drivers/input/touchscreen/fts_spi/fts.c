@@ -4441,14 +4441,6 @@ int fts_chip_powercycle(struct fts_ts_info *info)
 		}
 	}
 
-	if (info->avddold_reg) {
-		error = regulator_disable(info->avddold_reg);
-		if (error < 0) {
-			logError(1, "%s %s: Failed to disable AVDD SOURCE regulator\n",
-				 tag, __func__);
-		}
-	}
-
 	if (info->board->reset_gpio != GPIO_NOT_DEFINED)
 		gpio_set_value(info->board->reset_gpio, 0);
 	else
@@ -4469,16 +4461,6 @@ int fts_chip_powercycle(struct fts_ts_info *info)
 		error = regulator_enable(info->avdd_reg);
 		if (error < 0) {
 			logError(1, "%s %s: Failed to enable AVDD regulator\n",
-				 tag, __func__);
-		}
-	}
-
-	mdelay(1);
-
-	if (info->avddold_reg) {
-		error = regulator_enable(info->avddold_reg);
-		if (error < 0) {
-			logError(1, "%s %s: Failed to enable AVDD SOURCE regulator\n",
 				 tag, __func__);
 		}
 	}
@@ -4965,17 +4947,6 @@ static int fts_get_reg(struct fts_ts_info *info, bool get)
 		}
 	}
 
-	if ((bdata->avddold_name != NULL) && (*bdata->avddold_name != 0)) {
-		info->avddold_reg = regulator_get(info->dev, bdata->avddold_name);
-		if (IS_ERR(info->avddold_reg)) {
-			logError(1,
-				 "%s %s: Failed to get avdd source regulator\n",
-				 tag, __func__);
-			retval = PTR_ERR(info->avddold_reg);
-			goto regulator_put;
-		}
-	}
-
 	return OK;
 
 regulator_put:
@@ -4987,11 +4958,6 @@ regulator_put:
 	if (info->avdd_reg) {
 		regulator_put(info->avdd_reg);
 		info->avdd_reg = NULL;
-	}
-
-	if (info->avddold_reg) {
-		regulator_put(info->avddold_reg);
-		info->avddold_reg = NULL;
 	}
 
 	return retval;
@@ -5009,7 +4975,7 @@ static int fts_enable_reg(struct fts_ts_info *info, bool enable)
 
 	if (!enable) {
 		retval = 0;
-		goto disable_source_reg;
+		goto disable_pwr_reg;
 	}
 
 	if (info->vdd_reg) {
@@ -5030,20 +4996,7 @@ static int fts_enable_reg(struct fts_ts_info *info, bool enable)
 		}
 	}
 
-	if (info->avddold_reg) {
-		retval = regulator_enable(info->avddold_reg);
-		if (retval < 0) {
-			logError(1, "%s %s: Failed to enable avdd source regulator\n",
-				 tag, __func__);
-			goto disable_pwr_reg;
-		}
-	}
-
 	return OK;
-disable_source_reg:
-	if (info->avddold_reg)
-		regulator_disable(info->avddold_reg);
-
 disable_pwr_reg:
 	if (info->avdd_reg)
 		regulator_disable(info->avdd_reg);
@@ -5232,17 +5185,7 @@ static int parse_dt(struct device *dev, struct fts_hw_platform_data *bdata)
 		bdata->vdd_reg_name = name;
 		logError(0, "%s bus_reg_name = %s\n", tag, name);
 	}
-	if (fts_judge_hwid()) {
-		retval = of_property_read_string(np, "fts,avddold-name", &name);
-		if (retval == -EINVAL)
-			bdata->avddold_name = NULL;
-		else if (retval < 0)
-			return retval;
-		else {
-			bdata->avddold_name = name;
-			logError(0, "%s avddold_reg_name = %s\n", tag, name);
-		}
-	}
+
 	if (of_property_read_bool(np, "fts,reset-gpio-enable")) {
 		bdata->reset_gpio = of_get_named_gpio_flags(np,
 							    "fts,reset-gpio", 0,

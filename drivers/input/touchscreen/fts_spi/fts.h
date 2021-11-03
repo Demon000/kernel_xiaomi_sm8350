@@ -200,7 +200,6 @@ struct fts_hw_platform_data {
 	unsigned int y_max;
 	const char *vdd_reg_name;
 	const char *avdd_reg_name;
-	const char *avddold_name;
 	const char *default_fw_name;
 	const char *htp_fw_name;
 	size_t config_array_size;
@@ -302,7 +301,6 @@ struct fts_ts_info {
 	struct fts_hw_platform_data *board;
 	struct regulator *vdd_reg;
 	struct regulator *avdd_reg;
-	struct regulator *avddold_reg;
 
 	int resume_bit;
 	int fwupdate_stat;
