@@ -198,6 +198,10 @@ And public attribution of xiaomi platforms(like J2 and so and)
 	status = "disabled";
 };
 
+&pcie1_msi {
+	status = "disabled";
+};
+
 &qupv3_se11_spi {
 	status = "ok";
 	fts@0 {
