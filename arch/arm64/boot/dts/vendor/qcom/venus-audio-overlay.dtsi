@@ -67,6 +67,16 @@
 	qcom,tert-mi2s-gpios = <&tert_tdm_gpios>;
 	qcom,msm_audio_ssr_devs = <&audio_apr>, <&q6core>, <&lpi_tlmm>,
 				  <&bolero>, <&cs35l41_1>, <&cs35l41_2>;
+	asoc-codec  = <&stub_codec>, <&bolero>,
+		      <&wcd938x_codec>, <&swr_haptics>,
+		      <&swr_dmic_04>, <&swr_dmic_03>,
+		      <&swr_dmic_02>, <&swr_dmic_01>,
+		      <&ext_disp_audio_codec>;
+	asoc-codec-names = "msm-stub-codec.1", "bolero_codec",
+			   "wcd938x_codec", "swr-haptics",
+			   "swr-dmic.04", "swr-dmic.03",
+			   "swr-dmic.02", "swr-dmic.01",
+			   "msm-ext-disp-audio-codec-rx";
 };
 
 &wsa_swr_gpios {
@@ -86,7 +96,18 @@
 };
 
 &wsa_macro {
-	compatible = "qcom,wsa-macro";
+	status = "disabled";
+};
+
+&swr0 {
+	status = "disabled";
+};
+
+&wsa883x_0221 {
+	status = "disabled";
+};
+
+&wsa883x_0222 {
 	status = "disabled";
 };
 
