@@ -462,17 +462,8 @@ And public attribution of xiaomi platforms(like J2 and so and)
 	};
 };
 
-&sde_dp {
-	status = "disabled";
-};
-
-&qcom_msmhdcp {
-	status = "disabled";
-};
-
 &mdss_mdp {
-	connectors = <&sde_wb &sde_dsi &sde_rscc>;
-	qcom,sde-wakeup-with-touch;
+	connectors = <&sde_dp &sde_wb &sde_dsi &sde_rscc>;
 };
 
 &pm8350b_gpios {
