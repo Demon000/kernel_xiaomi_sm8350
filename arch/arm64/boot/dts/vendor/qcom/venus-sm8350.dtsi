@@ -486,7 +486,7 @@ And public attribution of xiaomi platforms(like J2 and so and)
 	qcom,param-override-seq =
 	<0xc6 0x6c
 	 0x0f 0x70
-	 0x00 0x74>;
+	 0x04 0x74>;
 };
 
 &usb1 {
