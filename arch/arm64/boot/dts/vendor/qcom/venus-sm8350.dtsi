@@ -214,11 +214,9 @@ And public attribution of xiaomi platforms(like J2 and so and)
 		pinctrl-0 = <&mi_ts_active>;
 		pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
 		avdd-supply = <&touch_avddsource_vreg>;
-		avddold-supply = <&L3C>;
 		vdd-supply = <&L2C>;
 		fts,pwr-reg-name = "avdd";
 		fts,bus-reg-name = "vdd";
-		fts,avddold-name = "avddold";
 		fts,irq-gpio = <&tlmm 23 0x2008>;
 		fts,irq-gpio-name = "fts_irq";
 		fts,reset-gpio-enable;
