@@ -83,7 +83,6 @@
 		l11c_vdd-supply = <&L11C>;
 		goodix,gpio-reset = <&tlmm 39 0x0>;
 		goodix,gpio-irq = <&tlmm 38 0x0>;
-		fp-gpio-pwr = <&tlmm 13 0x0>;
 		status = "ok";
 	};
 
