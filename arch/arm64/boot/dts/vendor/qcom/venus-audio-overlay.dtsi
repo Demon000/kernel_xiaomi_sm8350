@@ -142,6 +142,8 @@
 };
 
 &wcd938x_codec {
+	qcom,cdc-vdd-mic-bias-voltage = <3296000 3304000>;
+
 	qcom,cdc-micbias1-mv = <2750>;
 	qcom,cdc-micbias2-mv = <2750>;
 	qcom,cdc-micbias3-mv = <2750>;
