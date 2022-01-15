@@ -3033,7 +3033,7 @@ static void msm_geni_serial_cons_pm(struct uart_port *uport,
 
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
 	if (!is_early_cons_enabled)
-		return;
+		return 0;
 #endif
 
 	if (new_state == UART_PM_STATE_ON && old_state == UART_PM_STATE_OFF) {
