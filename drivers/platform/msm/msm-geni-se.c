@@ -1688,10 +1688,6 @@ static int geni_se_iommu_probe(struct device *dev)
 	return 0;
 }
 
-#ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
-extern bool is_early_cons_enabled;
-#endif
-
 static int geni_se_probe(struct platform_device *pdev)
 {
 	int ret;
