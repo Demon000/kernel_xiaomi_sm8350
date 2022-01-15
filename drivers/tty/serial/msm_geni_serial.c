@@ -2912,8 +2912,10 @@ static int console_register(struct uart_driver *drv)
 {
 
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
-	if (!is_early_cons_enabled)
+	if (!is_early_cons_enabled) {
+		pr_info("ignore console register\n");
 		return 0;
+	}
 #endif
 
 	return uart_register_driver(drv);
@@ -2923,8 +2925,10 @@ static void console_unregister(struct uart_driver *drv)
 {
 
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
-	if (!is_early_cons_enabled)
+	if (!is_early_cons_enabled) {
+		pr_info("ignore console unregister\n");
 		return;
+	}
 #endif
 
 	uart_unregister_driver(drv);
@@ -3030,11 +3034,6 @@ static void msm_geni_serial_cons_pm(struct uart_port *uport,
 		unsigned int new_state, unsigned int old_state)
 {
 	struct msm_geni_serial_port *msm_port = GET_DEV_PORT(uport);
-
-#ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
-	if (!is_early_cons_enabled)
-		return 0;
-#endif
 
 	if (new_state == UART_PM_STATE_ON && old_state == UART_PM_STATE_OFF) {
 		se_geni_resources_on(&msm_port->serial_rsc);
@@ -3385,9 +3384,13 @@ static int msm_geni_serial_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "%s: %s\n", __func__, id->compatible);
 
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
+	/*if earlycon is not enabled, we should ignore console
+	  driver prob*/
 	if (!is_early_cons_enabled &&
-		(!strcmp(id->compatible, "qcom,msm-geni-console")))
+		(!strcmp(id->compatible, "qcom,msm-geni-console"))) {
+		pr_info("ignore cons prob\n");
 		return 0;
+	}
 #endif
 
 	drv = (struct uart_driver *)id->data;
@@ -3541,13 +3544,20 @@ static int msm_geni_serial_remove(struct platform_device *pdev)
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
 	const struct of_device_id *id = of_match_device(msm_geni_device_tbl,
 			&pdev->dev);
-
-	if (!id)
+	if (!id) {
+		dev_err(&pdev->dev, "%s: No matching device found\n",
+				__func__);
 		return -ENODEV;
+	}
+	dev_dbg(&pdev->dev, "%s: %s\n", __func__, id->compatible);
 
+	/*if earlycon is not enabled, we should ignore console
+	  driver prob*/
 	if (!is_early_cons_enabled &&
-		(!strcmp(id->compatible, "qcom,msm-geni-console")))
+		(!strcmp(id->compatible, "qcom,msm-geni-console"))) {
+		pr_info("ignore cons remove\n");
 		return 0;
+	}
 #endif
 
 	port = platform_get_drvdata(pdev);
@@ -3593,12 +3603,20 @@ static int msm_geni_serial_runtime_suspend(struct device *dev)
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
 	const struct of_device_id *id = of_match_device(msm_geni_device_tbl,
 			&pdev->dev);
-	if (!id)
+	if (!id) {
+		dev_err(&pdev->dev, "%s: No matching device found\n",
+				__func__);
 		return -ENODEV;
+	}
+	dev_dbg(&pdev->dev, "%s: %s\n", __func__, id->compatible);
 
+	/*if earlycon is not enabled, we should ignore console
+	  driver prob*/
 	if (!is_early_cons_enabled &&
-		(!strcmp(id->compatible, "qcom,msm-geni-console")))
+		(!strcmp(id->compatible, "qcom,msm-geni-console"))) {
+		pr_info("ignore cons runtime suspend\n");
 		return 0;
+	}
 #endif
 
 	port = platform_get_drvdata(pdev);
@@ -3680,12 +3698,20 @@ static int msm_geni_serial_runtime_resume(struct device *dev)
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
 	const struct of_device_id *id = of_match_device(msm_geni_device_tbl,
 			&pdev->dev);
-	if (!id)
+	if (!id) {
+		dev_err(&pdev->dev, "%s: No matching device found\n",
+				__func__);
 		return -ENODEV;
+	}
+	dev_dbg(&pdev->dev, "%s: %s\n", __func__, id->compatible);
 
+	/*if earlycon is not enabled, we should ignore console
+	  driver prob*/
 	if (!is_early_cons_enabled &&
-		(!strcmp(id->compatible, "qcom,msm-geni-console")))
+		(!strcmp(id->compatible, "qcom,msm-geni-console"))) {
+		pr_info("ignore cons runtime resume\n");
 		return 0;
+	}
 #endif
 
 	port = platform_get_drvdata(pdev);
@@ -3730,12 +3756,20 @@ static int msm_geni_serial_sys_suspend(struct device *dev)
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
 	const struct of_device_id *id = of_match_device(msm_geni_device_tbl,
 			&pdev->dev);
-	if (!id)
+	if (!id) {
+		dev_err(&pdev->dev, "%s: No matching device found\n",
+				__func__);
 		return -ENODEV;
+	}
+	dev_dbg(&pdev->dev, "%s: %s\n", __func__, id->compatible);
 
+	/*if earlycon is not enabled, we should ignore console
+	  driver prob*/
 	if (!is_early_cons_enabled &&
-		(!strcmp(id->compatible, "qcom,msm-geni-console")))
+		(!strcmp(id->compatible, "qcom,msm-geni-console"))) {
+		pr_info("ignore cons suspend\n");
 		return 0;
+	}
 #endif
 
 	port = platform_get_drvdata(pdev);
@@ -3774,12 +3808,20 @@ static int msm_geni_serial_sys_resume(struct device *dev)
 #ifdef CONFIG_FASTBOOT_CMD_CTRL_UART
 	const struct of_device_id *id = of_match_device(msm_geni_device_tbl,
 			&pdev->dev);
-	if (!id)
+	if (!id) {
+		dev_err(&pdev->dev, "%s: No matching device found\n",
+				__func__);
 		return -ENODEV;
+	}
+	dev_dbg(&pdev->dev, "%s: %s\n", __func__, id->compatible);
 
+	/*if earlycon is not enabled, we should ignore console
+	  driver prob*/
 	if (!is_early_cons_enabled &&
-		(!strcmp(id->compatible, "qcom,msm-geni-console")))
+		(!strcmp(id->compatible, "qcom,msm-geni-console"))) {
+		pr_info("ignore cons resume\n");
 		return 0;
+	}
 #endif
 
 	port = platform_get_drvdata(pdev);
