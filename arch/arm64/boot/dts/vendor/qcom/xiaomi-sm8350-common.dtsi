@@ -167,10 +167,6 @@
 	status = "ok";
 };
 
-&pm8350b_haptics {
-	status = "ok";
-};
-
 &pm8350b_amoled_ecm {
 	display-panels = <&dsi_sw43404_amoled_cmd
 			&dsi_sw43404_amoled_video
