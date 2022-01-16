@@ -752,7 +752,12 @@ static irqreturn_t bwmon_intr_thread(int irq, void *dev)
 {
 	struct bwmon *m = dev;
 
+	if (oops_in_progress)
+		goto skip_update;
+
 	update_bw_hwmon(&m->hw);
+
+skip_update:
 	return IRQ_HANDLED;
 }
 

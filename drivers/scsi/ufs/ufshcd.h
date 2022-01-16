@@ -78,6 +78,30 @@
 
 #define UFSHCD_QUIRK_BROKEN_AUTO_HIBERN8                0x40000
 
+#define ufs_spin_lock_irqsave(lock, flags)			\
+	do {							\
+		if (!oops_in_progress)				\
+			spin_lock_irqsave(lock, flags);		\
+	} while (0)
+
+#define ufs_spin_unlock_irqrestore(lock, flags)			\
+	do {							\
+		if (!oops_in_progress)				\
+			spin_unlock_irqrestore(lock, flags);	\
+	} while (0)
+
+#define ufs_spin_lock(lock)					\
+	do {							\
+		if (!oops_in_progress)				\
+			spin_lock(lock);			\
+	} while (0)
+
+#define ufs_spin_unlock(lock)					\
+	do {							\
+		if (!oops_in_progress)				\
+			spin_unlock(lock);			\
+	} while (0)
+
 struct ufs_hba;
 
 enum dev_cmd_type {
