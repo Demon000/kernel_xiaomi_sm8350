@@ -1609,6 +1609,9 @@ static void ufs_qcom_dev_ref_clk_ctrl(struct ufs_qcom_host *host, bool enable)
 		 * device ref_clk is stable for a given time before the hibern8
 		 * exit command.
 		 */
+		if (enable && oops_in_progress)
+			udelay(50);
+		else
 		if (enable)
 			usleep_range(50, 60);
 
@@ -3389,12 +3392,24 @@ static void ufs_qcom_dump_dbg_regs(struct ufs_hba *hba)
 	ufs_qcom_print_hw_debug_reg_all(hba, NULL, ufs_qcom_dump_regs_wrapper);
 
 	if (in_task()) {
+		if (oops_in_progress)
+			udelay(1000);
+		else
 		usleep_range(1000, 1100);
 		ufs_qcom_testbus_read(hba);
+		if (oops_in_progress)
+			udelay(1000);
+		else
 		usleep_range(1000, 1100);
 		ufs_qcom_print_unipro_testbus(hba);
+		if (oops_in_progress)
+			udelay(1000);
+		else
 		usleep_range(1000, 1100);
 		ufs_qcom_print_utp_hci_testbus(hba);
+		if (oops_in_progress)
+			udelay(1000);
+		else
 		usleep_range(1000, 1100);
 		ufs_qcom_phy_dbg_register_dump(phy);
 		ufshcd_print_fsm_state(hba);
