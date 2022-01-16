@@ -30,6 +30,33 @@
 #include <linux/mount.h>
 #include <linux/slab.h>
 #include <linux/major.h>
+#include <linux/errno.h>
+#include <linux/kernel.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <asm/uaccess.h>
+#include <asm/unaligned.h>
+
+#include <linux/scatterlist.h>
+#include <scsi/scsi.h>
+#include <scsi/scsi_cmnd.h>
+#include <scsi/scsi_dbg.h>
+#include <scsi/scsi_device.h>
+#include <scsi/scsi_eh.h>
+#include <scsi/scsi_host.h>
+#include <scsi/scsi_proto.h>
+#include <scsi/scsi_transport.h>
+#include "../../scsi/sd.h"
+#include "../../scsi/scsi_priv.h"
+
+#define bdev_to_sdev(bdev) \
+	scsi_disk(bdev->bd_disk)->device
+
+struct scsi_rq {
+	struct scatterlist sgl[512];
+	struct request rq;
+	struct scsi_cmnd scmnd;
+} __attribute__((packed));
 
 /* Info for the block device */
 struct block2mtd_dev {
@@ -37,6 +64,7 @@ struct block2mtd_dev {
 	struct block_device *blkdev;
 	struct mtd_info mtd;
 	struct mutex write_mutex;
+	struct scsi_rq *scsi_rq;
 };
 
 
@@ -156,7 +184,7 @@ static int _block2mtd_write(struct block2mtd_dev *dev, const u_char *buf,
 			lock_page(page);
 			memcpy(page_address(page) + offset, buf, cpylen);
 			set_page_dirty(page);
-			unlock_page(page);
+			write_one_page(page);
 			balance_dirty_pages_ratelimited(mapping);
 		}
 		put_page(page);
@@ -171,6 +199,144 @@ static int _block2mtd_write(struct block2mtd_dev *dev, const u_char *buf,
 	return 0;
 }
 
+static void diskio_done(struct scsi_cmnd *cmd)
+{
+	struct scsi_sense_hdr sshr;
+	int i;
+
+	for (i = 0; i < cmd->sdb.table.nents; i++) {
+		struct scatterlist *sg = &cmd->sdb.table.sgl[i];
+		struct page *pg = (struct page *)sg->page_link;
+		put_page(pg);
+	}
+
+	scsi_normalize_sense(cmd->sense_buffer,
+			     sizeof(struct scsi_sense_hdr), &sshr);
+
+	scsi_put_command(cmd);
+}
+
+static int prepare_command(struct block2mtd_dev *dev)
+{
+	struct block_device *bdev = dev->blkdev;
+	struct scsi_cmnd *scmnd = &dev->scsi_rq->scmnd;
+	struct scsi_device *sdev = bdev_to_sdev(bdev);
+
+	if (sdev->sdev_state != SDEV_RUNNING)
+		return -1;
+
+	scsi_init_command(sdev, scmnd);
+	scmnd->request = &dev->scsi_rq->rq;
+	scmnd->scsi_done = diskio_done;
+	scmnd->transfersize = sdev->sector_size;
+
+	return 0;
+}
+
+static int send_command(struct block2mtd_dev *dev)
+{
+	struct scsi_cmnd *scmnd = &dev->scsi_rq->scmnd;
+
+	return scmnd->device->host->hostt->queuecommand(scmnd->device->host,
+							scmnd);
+}
+
+static int do_sync(struct block2mtd_dev *dev)
+{
+	struct scsi_cmnd *scmnd = &dev->scsi_rq->scmnd;
+	char cdb[10] = {0};
+	int ret;
+
+	ret = prepare_command(dev);
+	if (ret)
+		return ret;
+
+	scmnd->cmnd = cdb;
+	scmnd->cmd_len = sizeof(cdb);
+	scmnd->cmnd[0] = SYNCHRONIZE_CACHE;
+
+	return send_command(dev);
+}
+
+static int do_write(struct block2mtd_dev *dev, const u_char *buf, loff_t to,
+		    u32 len)
+{
+	struct block_device *bdev = dev->blkdev;
+	struct scsi_device *sdev = bdev_to_sdev(bdev);
+	struct scsi_cmnd *scmnd = &dev->scsi_rq->scmnd;
+	unsigned int offset, nr_pages, i;
+	char cdb[16] = {0};
+	sector_t lba;
+	int ret;
+
+	ret = prepare_command(dev);
+	if (ret)
+		return ret;
+
+	nr_pages = ((u64)buf + len + PAGE_SIZE - 1) / PAGE_SIZE -
+		   (u64)buf / PAGE_SIZE;
+	lba = sectors_to_logical(sdev, bdev->bd_part->start_sect);
+	offset = ((to & ~PAGE_MASK) ? 1 : 0) + (to >> PAGE_SHIFT) + lba;
+
+	scmnd->cmnd = cdb;
+	scmnd->sdb.length = len;
+	scmnd->sdb.table.nents = nr_pages;
+	scmnd->sdb.table.orig_nents = nr_pages;
+	scmnd->sdb.table.sgl = dev->scsi_rq->sgl;
+	scmnd->sc_data_direction = DMA_TO_DEVICE;
+
+	if (offset > 0xffffffff || len > 0xffff) {
+		scmnd->cmd_len = 16;
+		scmnd->cmnd[0] = WRITE_16;
+		put_unaligned_be64(offset, &scmnd->cmnd[2]);
+		put_unaligned_be32(len, &scmnd->cmnd[10]);
+	} else {
+		scmnd->cmd_len = 10;
+		scmnd->cmnd[0] = WRITE_10;
+		put_unaligned_be32(offset, &scmnd->cmnd[2]);
+		put_unaligned_be16(len, &scmnd->cmnd[7]);
+	}
+
+	for (i = 0; i < nr_pages; i++) {
+		struct scatterlist *sg = &scmnd->sdb.table.sgl[i];
+		struct page *pg = virt_to_page(buf + i * PAGE_SIZE);
+
+		sg->page_link = (unsigned long)pg;
+		sg->dma_address = page_to_phys(pg);
+		sg->offset = 0;
+
+		if (i == nr_pages - 1) {
+			sg->length = len % PAGE_SIZE ?: PAGE_SIZE;
+			sg->dma_length = len % PAGE_SIZE ?: PAGE_SIZE;
+		} else {
+			sg->length = PAGE_SIZE;
+			sg->dma_length = PAGE_SIZE;
+			sg_mark_end(sg);
+		}
+	}
+
+	return send_command(dev);
+}
+
+static int _block2mtd_panic_write(struct block2mtd_dev *dev, const u_char *buf,
+		loff_t to, size_t len, size_t *retlen)
+{
+	int ret;
+
+	ret = do_write(dev, buf, to, len);
+	if (ret)
+		return ret;
+
+	ret = do_sync(dev);
+	if (ret)
+		return ret;
+
+	mdelay(10);
+
+	*retlen = len;
+
+	return 0;
+}
 
 static int block2mtd_write(struct mtd_info *mtd, loff_t to, size_t len,
 		size_t *retlen, const u_char *buf)
@@ -186,6 +352,17 @@ static int block2mtd_write(struct mtd_info *mtd, loff_t to, size_t len,
 	return err;
 }
 
+static int block2mtd_panic_write(struct mtd_info *mtd, loff_t to, size_t len,
+		size_t *retlen, const u_char *buf)
+{
+	struct block2mtd_dev *dev = mtd->priv;
+	int err;
+
+	err = _block2mtd_panic_write(dev, buf, to, len, retlen);
+	if (err > 0)
+		err = 0;
+	return err;
+}
 
 /* sync the device - wait until the write queue is empty */
 static void block2mtd_sync(struct mtd_info *mtd)
@@ -222,6 +399,7 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 	const fmode_t mode = FMODE_READ | FMODE_WRITE | FMODE_EXCL;
 	struct block_device *bdev;
 	struct block2mtd_dev *dev;
+	struct scsi_device *sdev;
 	char *name;
 
 	if (!devname)
@@ -274,6 +452,12 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 		goto err_free_block2mtd;
 	}
 
+	sdev = scsi_disk(bdev->bd_disk)->device;
+	dev->scsi_rq = kzalloc(sizeof(*dev->scsi_rq) +
+			       sdev->host->hostt->cmd_size, GFP_KERNEL);
+	if (!dev->scsi_rq)
+		goto err_free_block2mtd;
+
 	mutex_init(&dev->write_mutex);
 
 	/* Setup the MTD structure */
@@ -292,6 +476,7 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 	dev->mtd.flags = MTD_CAP_RAM;
 	dev->mtd._erase = block2mtd_erase;
 	dev->mtd._write = block2mtd_write;
+	dev->mtd._panic_write = block2mtd_panic_write;
 	dev->mtd._sync = block2mtd_sync;
 	dev->mtd._read = block2mtd_read;
 	dev->mtd.priv = dev;
@@ -311,6 +496,7 @@ static struct block2mtd_dev *add_device(char *devname, int erase_size,
 
 err_destroy_mutex:
 	mutex_destroy(&dev->write_mutex);
+	kfree(dev->scsi_rq);
 err_free_block2mtd:
 	block2mtd_free_device(dev);
 	return NULL;
