@@ -504,6 +504,9 @@ int update_bw_hwmon(struct bw_hwmon *hwmon)
 	if (!node)
 		return -ENODEV;
 
+	if (oops_in_progress)
+		return 0;
+
 	mutex_lock(&node->mon_lock);
 	if (!node->mon_started) {
 		mutex_unlock(&node->mon_lock);
