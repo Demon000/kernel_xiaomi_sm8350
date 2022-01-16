@@ -7,6 +7,7 @@
 #include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/list.h>
+#include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -233,6 +234,7 @@ static int __rpmh_write(const struct device *dev, enum rpmh_state state,
 	rpm_msg->msg.state = state;
 
 	if (state == RPMH_ACTIVE_ONLY_STATE) {
+		if (!oops_in_progress)
 		WARN_ON(irqs_disabled());
 		ret = rpmh_rsc_send_data(ctrlr_to_drv(ctrlr), &rpm_msg->msg);
 	} else {
@@ -334,10 +336,14 @@ int rpmh_write(const struct device *dev, enum rpmh_state state,
 	if (ret)
 		return ret;
 
+	if (oops_in_progress) {
+		mdelay(100);
+	} else {
 	ret = wait_for_completion_timeout(&compl, RPMH_TIMEOUT_MS);
 	if (!ret) {
 		rpmh_rsc_debug(ctrlr_to_drv(ctrlr), &compl);
 		return -ETIMEDOUT;
+	}
 	}
 
 	return 0;
@@ -477,6 +483,9 @@ int rpmh_write_batch(const struct device *dev, enum rpmh_state state,
 
 	time_left = RPMH_TIMEOUT_MS;
 	while (i--) {
+		if (oops_in_progress) {
+			mdelay(100);
+		} else {
 		time_left = wait_for_completion_timeout(&compls[i], time_left);
 		if (!time_left) {
 			/*
@@ -486,6 +495,7 @@ int rpmh_write_batch(const struct device *dev, enum rpmh_state state,
 			 */
 			rpmh_rsc_debug(ctrlr_to_drv(ctrlr), &compls[i]);
 			BUG_ON(1);
+		}
 		}
 	}
 
