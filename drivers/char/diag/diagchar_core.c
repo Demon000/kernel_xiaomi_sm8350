@@ -644,15 +644,15 @@ void diag_record_stats(int type, int flag)
 
 void diag_get_timestamp(char *time_str)
 {
-	struct timeval t;
+	struct timespec64 t;
 	struct tm broken_tm;
 
-	do_gettimeofday(&t);
+	ktime_get_real_ts64(&t);
 	if (!time_str)
 		return;
-	time_to_tm(t.tv_sec, 0, &broken_tm);
+	time64_to_tm(t.tv_sec, 0, &broken_tm);
 	scnprintf(time_str, DIAG_TS_SIZE, "%d:%d:%d:%ld", broken_tm.tm_hour,
-				broken_tm.tm_min, broken_tm.tm_sec, t.tv_usec);
+				broken_tm.tm_min, broken_tm.tm_sec, t.tv_nsec / 1000);
 }
 
 int diag_get_remote(int remote_info)
