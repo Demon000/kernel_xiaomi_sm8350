@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/console.h>
 #include <linux/vmalloc.h>
+#include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <linux/sched.h>
 #include <linux/wait.h>
@@ -18,6 +19,9 @@
 #include <linux/interrupt.h>
 #include <linux/mtd/mtd.h>
 #include <linux/kmsg_dump.h>
+#include <linux/pstore_ram.h>
+
+extern struct ramoops_platform_data ramoops_data;
 
 /* Maximum MTD partition size */
 #define MTDOOPS_MAX_MTD_SIZE (16 * 1024 * 1024)
@@ -202,7 +206,8 @@ static void mtdoops_write(struct mtdoops_context *cxt, int panic)
 	mark_page_used(cxt, cxt->nextpage);
 	memset(cxt->oops_buf, 0xff, record_size);
 
-	mtdoops_inc_counter(cxt);
+	if (!panic)
+		mtdoops_inc_counter(cxt);
 }
 
 static void mtdoops_workfunc_write(struct work_struct *work)
@@ -266,20 +271,83 @@ static void find_next_position(struct mtdoops_context *cxt)
 	mtdoops_inc_counter(cxt);
 }
 
+static void mtdoops_add_reason(char *buf, const char *type)
+{
+	struct timespec64 now;
+	struct tm ts;
+	int len = 0;
+
+	ktime_get_coarse_real_ts64(&now);
+	time64_to_tm(now.tv_sec, 0, &ts);
+
+#define PRINT(...) len += sprintf(buf + len, __VA_ARGS__)
+
+	PRINT("\n\n");
+	PRINT("# Type: %s\n", type);
+	PRINT("# Date: %04ld-%02d-%02d %02d:%02d:%02d\n",
+	      ts.tm_year + 1900, ts.tm_mon + 1, ts.tm_mday, ts.tm_hour,
+	      ts.tm_min, ts.tm_sec);
+}
+
+static void mtdoops_do_pmsg_dump(char *buf, size_t rem)
+{
+	struct persistent_ram_buffer *p_hdr = (struct persistent_ram_buffer *)
+		phys_to_virt(ramoops_data.mem_address + ramoops_data.mem_size -
+			     ramoops_data.pmsg_size);
+	size_t start = p_hdr->start.counter;
+	size_t size = p_hdr->size.counter;
+
+	if (p_hdr->sig != PERSISTENT_RAM_SIG)
+		return;
+
+	if (size > rem)
+		size = rem;
+
+	/*
+	 * Data is stored in a circular buffer. Start is actually the
+	 * position at which next data will be stored.
+	 * If start is equal or greater than size, next write would have
+	 * wrapped around.
+	 *
+	 * [ new logs ] [ free space ]
+	 *	       ^ start
+	 *             ^ size
+	 *
+	 * If start is less than size, then we already wrapped around.
+	 * [ new logs ] [ old logs ]
+	 *             ^ start      ^ size
+	 */
+
+	if (start >= size)
+		start = 0;
+	else
+		memcpy(buf + size - start, p_hdr->data, start);
+
+	memcpy(buf, p_hdr->data + start, size - start);
+}
+
 static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 			    enum kmsg_dump_reason reason)
 {
 	struct mtdoops_context *cxt = container_of(dumper,
 			struct mtdoops_context, dump);
+	size_t len;
 
 	/* Only dump oopses if dump_oops is set */
 	if (reason == KMSG_DUMP_OOPS && !dump_oops)
 		return;
 
 	kmsg_dump_get_buffer(dumper, true, cxt->oops_buf + MTDOOPS_HEADER_SIZE,
-			     record_size - MTDOOPS_HEADER_SIZE, NULL);
+			     record_size - MTDOOPS_HEADER_SIZE, &len);
 
-	if (reason != KMSG_DUMP_OOPS) {
+	mtdoops_add_reason(cxt->oops_buf + MTDOOPS_HEADER_SIZE, "KMSG");
+
+	mtdoops_do_pmsg_dump(cxt->oops_buf + MTDOOPS_HEADER_SIZE + len,
+			     record_size - MTDOOPS_HEADER_SIZE - len);
+
+	mtdoops_add_reason(cxt->oops_buf + MTDOOPS_HEADER_SIZE + len, "PMSG");
+
+	if (reason == KMSG_DUMP_OOPS || reason == KMSG_DUMP_PANIC) {
 		/* Panics must be written immediately */
 		mtdoops_write(cxt, 1);
 	} else {
