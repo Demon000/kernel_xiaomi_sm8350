@@ -20,7 +20,7 @@
 #include <linux/kmsg_dump.h>
 
 /* Maximum MTD partition size */
-#define MTDOOPS_MAX_MTD_SIZE (8 * 1024 * 1024)
+#define MTDOOPS_MAX_MTD_SIZE (16 * 1024 * 1024)
 
 #define MTDOOPS_KERNMSG_MAGIC 0x5d005d00
 #define MTDOOPS_HEADER_SIZE   8
