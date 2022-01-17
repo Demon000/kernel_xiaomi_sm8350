@@ -20,27 +20,9 @@
 #include <linux/vmalloc.h>
 #include <asm/page.h>
 
-/**
- * struct persistent_ram_buffer - persistent circular RAM buffer
- *
- * @sig:
- *	signature to indicate header (PERSISTENT_RAM_SIG xor PRZ-type value)
- * @start:
- *	offset into @data where the beginning of the stored bytes begin
- * @size:
- *	number of valid bytes stored in @data
- */
-struct persistent_ram_buffer {
-	uint32_t    sig;
-	atomic_t    start;
-	atomic_t    size;
-	uint8_t     data[0];
-};
-
 #define MEM_TYPE_WCOMBINE	0
 #define MEM_TYPE_NONCACHED	1
 #define MEM_TYPE_NORMAL		2
-#define PERSISTENT_RAM_SIG (0x43474244) /* DBGC */
 
 static inline size_t buffer_size(struct persistent_ram_zone *prz)
 {

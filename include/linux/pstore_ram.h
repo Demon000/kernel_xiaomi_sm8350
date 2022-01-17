@@ -28,8 +28,26 @@
  */
 #define PRZ_FLAG_ZAP_OLD	BIT(1)
 
-struct persistent_ram_buffer;
+#define PERSISTENT_RAM_SIG (0x43474244) /* DBGC */
+
 struct rs_control;
+
+/**
+ * struct persistent_ram_buffer - persistent circular RAM buffer
+ *
+ * @sig:
+ *	signature to indicate header (PERSISTENT_RAM_SIG xor PRZ-type value)
+ * @start:
+ *	offset into @data where the beginning of the stored bytes begin
+ * @size:
+ *	number of valid bytes stored in @data
+ */
+struct persistent_ram_buffer {
+	uint32_t    sig;
+	atomic_t    start;
+	atomic_t    size;
+	uint8_t     data[0];
+};
 
 struct persistent_ram_ecc_info {
 	int block_size;
