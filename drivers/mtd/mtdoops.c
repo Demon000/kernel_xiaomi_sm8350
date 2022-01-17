@@ -388,7 +388,7 @@ static int __init mtdoops_init(void)
 	if (*endp == '\0')
 		cxt->mtd_index = mtd_index;
 
-	cxt->oops_buf = vmalloc(record_size);
+	cxt->oops_buf = kmalloc(record_size, GFP_KERNEL);
 	if (!cxt->oops_buf) {
 		printk(KERN_ERR "mtdoops: failed to allocate buffer workspace\n");
 		return -ENOMEM;
@@ -407,7 +407,7 @@ static void __exit mtdoops_exit(void)
 	struct mtdoops_context *cxt = &oops_cxt;
 
 	unregister_mtd_user(&mtdoops_notifier);
-	vfree(cxt->oops_buf);
+	kfree(cxt->oops_buf);
 	vfree(cxt->oops_page_used);
 }
 
