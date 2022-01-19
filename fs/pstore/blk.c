@@ -20,6 +20,20 @@
 #include <linux/writeback.h>
 #include <linux/workqueue.h>
 
+#include <asm/unaligned.h>
+#include <scsi/scsi.h>
+#include <scsi/scsi_dbg.h>
+#include <scsi/scsi_device.h>
+#include <scsi/scsi_eh.h>
+#include <scsi/scsi_host.h>
+#include <scsi/scsi_proto.h>
+#include <scsi/scsi_transport.h>
+#include "../../drivers/scsi/sd.h"
+#include "../../drivers/scsi/scsi_priv.h"
+
+#define bdev_to_sdev(bdev) \
+	scsi_disk(bdev->bd_disk)->device
+
 static long kmsg_size = CONFIG_PSTORE_BLK_KMSG_SIZE;
 module_param(kmsg_size, long, 0400);
 MODULE_PARM_DESC(kmsg_size, "kmsg dump record size in kbytes");
@@ -56,6 +70,10 @@ MODULE_PARM_DESC(ftrace_size, "ftrace size in kbytes");
 static bool best_effort;
 module_param(best_effort, bool, 0400);
 MODULE_PARM_DESC(best_effort, "use best effort to write (i.e. do not require storage driver pstore support, default: off)");
+
+static bool scsi_panic_write;
+module_param(scsi_panic_write, bool, 0400);
+MODULE_PARM_DESC(scsi_panic_write, "use SCSI methods for writing when in panic");
 
 /*
  * blkdev - the block device to use for pstore storage
@@ -186,6 +204,142 @@ void unregister_pstore_device(struct pstore_device_info *dev)
 	mutex_unlock(&pstore_blk_lock);
 }
 EXPORT_SYMBOL_GPL(unregister_pstore_device);
+
+static void diskio_done(struct scsi_cmnd *cmd)
+{
+	struct scsi_sense_hdr sshr;
+	int i;
+
+	for (i = 0; i < cmd->sdb.table.nents; i++) {
+		struct scatterlist *sg = &cmd->sdb.table.sgl[i];
+		struct page *pg = (struct page *)sg->page_link;
+		put_page(pg);
+	}
+
+	scsi_normalize_sense(cmd->sense_buffer,
+			     sizeof(struct scsi_sense_hdr), &sshr);
+
+	scsi_put_command(cmd);
+}
+
+static int prepare_command(struct pstore_device_info *dev)
+{
+	struct scsi_device *sdev = bdev_to_sdev(psbdev);
+	struct scsi_cmnd *scmnd = &dev->scsi_rq->scmnd;
+
+	if (sdev->sdev_state != SDEV_RUNNING)
+		return -1;
+
+	scsi_init_command(sdev, scmnd);
+	scmnd->request = &dev->scsi_rq->rq;
+	scmnd->scsi_done = diskio_done;
+	scmnd->transfersize = sdev->sector_size;
+
+	return 0;
+}
+
+static int send_command(struct pstore_device_info *dev)
+{
+	struct scsi_cmnd *scmnd = &dev->scsi_rq->scmnd;
+
+	return scmnd->device->host->hostt->queuecommand(scmnd->device->host,
+							scmnd);
+}
+
+static int do_sync(struct pstore_device_info *dev)
+{
+	struct scsi_cmnd *scmnd = &dev->scsi_rq->scmnd;
+	char cdb[10] = {0};
+	int ret;
+
+	ret = prepare_command(dev);
+	if (ret)
+		return ret;
+
+	scmnd->cmnd = cdb;
+	scmnd->cmd_len = sizeof(cdb);
+	scmnd->cmnd[0] = SYNCHRONIZE_CACHE;
+
+	return send_command(dev);
+}
+
+static int do_write(struct pstore_device_info *dev, const char *buf, loff_t to,
+		    size_t len)
+{
+	struct scsi_device *sdev = bdev_to_sdev(psbdev);
+	struct scsi_cmnd *scmnd = &dev->scsi_rq->scmnd;
+	unsigned int offset, nr_pages, i;
+	char cdb[16] = {0};
+	sector_t lba;
+	int ret;
+
+	ret = prepare_command(dev);
+	if (ret)
+		return ret;
+
+	nr_pages = ((u64)buf + len + PAGE_SIZE - 1) / PAGE_SIZE -
+		   (u64)buf / PAGE_SIZE;
+	lba = sectors_to_logical(sdev, psbdev->bd_part->start_sect);
+	offset = ((to & ~PAGE_MASK) ? 1 : 0) + (to >> PAGE_SHIFT) + lba;
+
+	scmnd->cmnd = cdb;
+	scmnd->sdb.length = len;
+	scmnd->sdb.table.nents = nr_pages;
+	scmnd->sdb.table.orig_nents = nr_pages;
+	scmnd->sdb.table.sgl = dev->scsi_rq->sgl;
+	scmnd->sc_data_direction = DMA_TO_DEVICE;
+
+	if (offset > 0xffffffff || len > 0xffff) {
+		scmnd->cmd_len = 16;
+		scmnd->cmnd[0] = WRITE_16;
+		put_unaligned_be64(offset, &scmnd->cmnd[2]);
+		put_unaligned_be32(len, &scmnd->cmnd[10]);
+	} else {
+		scmnd->cmd_len = 10;
+		scmnd->cmnd[0] = WRITE_10;
+		put_unaligned_be32(offset, &scmnd->cmnd[2]);
+		put_unaligned_be16(len, &scmnd->cmnd[7]);
+	}
+
+	for (i = 0; i < nr_pages; i++) {
+		struct scatterlist *sg = &scmnd->sdb.table.sgl[i];
+		struct page *pg = virt_to_page(buf + i * PAGE_SIZE);
+
+		sg->page_link = (unsigned long)pg;
+		sg->dma_address = page_to_phys(pg);
+		sg->offset = 0;
+
+		if (i == nr_pages - 1) {
+			sg->length = len % PAGE_SIZE ?: PAGE_SIZE;
+			sg->dma_length = len % PAGE_SIZE ?: PAGE_SIZE;
+		} else {
+			sg->length = PAGE_SIZE;
+			sg->dma_length = PAGE_SIZE;
+			sg_mark_end(sg);
+		}
+	}
+
+	return send_command(dev);
+}
+
+static ssize_t psblk_scsi_blk_panic_write(const char *buf, size_t bytes,
+		loff_t pos)
+{
+	struct pstore_device_info *dev = pstore_device_info;
+	int ret;
+
+	ret = do_write(dev, buf, pos, bytes);
+	if (ret)
+		return ret;
+
+	ret = do_sync(dev);
+	if (ret)
+		return ret;
+
+	mdelay(10);
+
+	return bytes;
+}
 
 static ssize_t psblk_generic_blk_read(char *buf, size_t bytes, loff_t pos)
 {
@@ -343,14 +497,29 @@ static int __best_effort_init(void)
 	dev->zone.write = psblk_generic_blk_write;
 	dev->zone.total_size = psbdev->bd_inode->i_size & PAGE_MASK;
 
+	if (scsi_panic_write) {
+		struct scsi_device *sdev = bdev_to_sdev(psbdev);
+		dev->scsi_rq = kzalloc(sizeof(*dev->scsi_rq) +
+				       sdev->host->hostt->cmd_size, GFP_KERNEL);
+		if (!dev->scsi_rq)
+			goto put_bdev;
+
+		dev->zone.panic_write = psblk_scsi_blk_panic_write;
+	}
+
 	ret = __register_pstore_device(dev);
 	if (ret)
-		goto put_bdev;
+		goto free_scsi_rq;
 
-	pr_info("attached %s (%lu) (no dedicated panic_write!)\n",
-		blkdev, dev->zone.total_size);
+	pr_info("attached %s (%lu)", blkdev, dev->zone.total_size);
+	if (!scsi_panic_write)
+		pr_cont(" (no dedicated panic_write!)");
+	pr_cont("\n");
 
 	return 0;
+
+free_scsi_rq:
+	kfree(dev->scsi_rq);
 
 put_bdev:
 	blkdev_put(psbdev, BLOCK_DEVICE_MODE);

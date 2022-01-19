@@ -3,9 +3,18 @@
 #ifndef __PSTORE_BLK_H_
 #define __PSTORE_BLK_H_
 
+#include <linux/blkdev.h>
 #include <linux/types.h>
 #include <linux/pstore.h>
 #include <linux/pstore_zone.h>
+#include <linux/scatterlist.h>
+#include <scsi/scsi_cmnd.h>
+
+struct scsi_rq {
+	struct scatterlist sgl[512];
+	struct request rq;
+	struct scsi_cmnd scmnd;
+} __attribute__((packed));
 
 /**
  * struct pstore_device_info - back-end pstore/blk driver structure.
@@ -19,6 +28,7 @@
 struct pstore_device_info {
 	unsigned int flags;
 	struct pstore_zone_info zone;
+	struct scsi_rq *scsi_rq;
 };
 
 int  register_pstore_device(struct pstore_device_info *dev);
