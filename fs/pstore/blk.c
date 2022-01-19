@@ -9,15 +9,16 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/blkdev.h>
+#include <linux/delay.h>
 #include <linux/string.h>
-#include <linux/of.h>
-#include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/pstore_blk.h>
 #include <linux/fs.h>
 #include <linux/file.h>
 #include <linux/mount.h>
 #include <linux/syscalls.h>
+#include <linux/writeback.h>
+#include <linux/workqueue.h>
 
 static long kmsg_size = CONFIG_PSTORE_BLK_KMSG_SIZE;
 module_param(kmsg_size, long, 0400);
@@ -69,7 +70,8 @@ MODULE_PARM_DESC(blkdev, "block device for pstore storage");
  * during the register/unregister functions.
  */
 static DEFINE_MUTEX(pstore_blk_lock);
-static struct file *psblk_file;
+static DEFINE_MUTEX(pstore_blk_write_lock);
+static struct block_device *psbdev;
 static struct pstore_device_info *pstore_device_info;
 
 #define check_size(name, alignsize) ({				\
@@ -187,57 +189,92 @@ EXPORT_SYMBOL_GPL(unregister_pstore_device);
 
 static ssize_t psblk_generic_blk_read(char *buf, size_t bytes, loff_t pos)
 {
-	return kernel_read(psblk_file, buf, bytes, &pos);
+	struct address_space *mapping = psbdev->bd_inode->i_mapping;
+	int index = pos >> PAGE_SHIFT;
+	int offset = pos & ~PAGE_MASK;
+	struct page *page;
+	ssize_t retlen = 0;
+	int cpylen;
+
+	while (bytes) {
+		if (offset + bytes > PAGE_SIZE)
+			cpylen = PAGE_SIZE - offset;
+		else
+			cpylen = bytes;
+
+		bytes = bytes - cpylen;
+
+		page = read_mapping_page(mapping, index, NULL);
+		if (IS_ERR(page))
+			return PTR_ERR(page);
+
+		memcpy(buf, page_address(page) + offset, cpylen);
+		put_page(page);
+
+		retlen += cpylen;
+
+		buf += cpylen;
+		offset = 0;
+		index++;
+	}
+
+	return retlen;
+}
+
+static ssize_t _psblk_generic_blk_write(const char *buf, size_t bytes,
+					loff_t pos)
+{
+	struct address_space *mapping = psbdev->bd_inode->i_mapping;
+	int index = pos >> PAGE_SHIFT;
+	int offset = pos & ~PAGE_MASK;
+	struct page *page;
+	ssize_t retlen = 0;
+	int cpylen;
+
+	while (bytes) {
+		if (offset + bytes > PAGE_SIZE)
+			cpylen = PAGE_SIZE - offset;
+		else
+			cpylen = bytes;
+
+		bytes = bytes - cpylen;
+
+		page = read_mapping_page(mapping, index, NULL);
+		if (IS_ERR(page))
+			return PTR_ERR(page);
+
+		if (memcmp(page_address(page) + offset, buf, cpylen)) {
+			lock_page(page);
+			memcpy(page_address(page) + offset, buf, cpylen);
+			set_page_dirty(page);
+			unlock_page(page);
+			balance_dirty_pages_ratelimited(mapping);
+		}
+		put_page(page);
+
+		retlen += cpylen;
+
+		buf += cpylen;
+		offset = 0;
+		index++;
+	}
+
+	return retlen;
 }
 
 static ssize_t psblk_generic_blk_write(const char *buf, size_t bytes,
-		loff_t pos)
+				       loff_t pos)
 {
-	/* Console/Ftrace backend may handle buffer until flush dirty zones */
+	ssize_t retlen;
+
 	if (in_interrupt() || irqs_disabled())
 		return -EBUSY;
-	return kernel_write(psblk_file, buf, bytes, &pos);
-}
 
-/*
- * This takes its configuration only from the module parameters now.
- */
-static int __register_pstore_blk(struct pstore_device_info *dev,
-				 const char *devpath)
-{
-	struct inode *inode;
-	int ret = -ENODEV;
+	mutex_lock(&pstore_blk_write_lock);
+	retlen = _psblk_generic_blk_write(buf, bytes, pos);
+	mutex_unlock(&pstore_blk_write_lock);
 
-	lockdep_assert_held(&pstore_blk_lock);
-
-	psblk_file = filp_open(devpath, O_RDWR | O_DSYNC | O_NOATIME | O_EXCL, 0);
-	if (IS_ERR(psblk_file)) {
-		ret = PTR_ERR(psblk_file);
-		pr_err("failed to open '%s': %d!\n", devpath, ret);
-		goto err;
-	}
-
-	inode = file_inode(psblk_file);
-	if (!S_ISBLK(inode->i_mode)) {
-		pr_err("'%s' is not block device!\n", devpath);
-		goto err_fput;
-	}
-
-	inode = I_BDEV(psblk_file->f_mapping->host)->bd_inode;
-	dev->zone.total_size = i_size_read(inode);
-
-	ret = __register_pstore_device(dev);
-	if (ret)
-		goto err_fput;
-
-	return 0;
-
-err_fput:
-	fput(psblk_file);
-err:
-	psblk_file = NULL;
-
-	return ret;
+	return retlen;
 }
 
 /* get information of pstore/blk */
@@ -254,39 +291,34 @@ int pstore_blk_get_config(struct pstore_blk_config *info)
 }
 EXPORT_SYMBOL_GPL(pstore_blk_get_config);
 
-
-#ifndef MODULE
-static const char devname[] = "/dev/pstore-blk";
-static __init const char *early_boot_devpath(const char *initial_devname)
+#define BLOCK_DEVICE_FIND_RETRIES	1000
+#define BLOCK_DEVICE_FIND_WAIT		10
+#define BLOCK_DEVICE_MODE		(FMODE_READ | FMODE_WRITE | FMODE_EXCL)
+static struct block_device *find_block_device(struct pstore_device_info *dev,
+					      const char *path)
 {
-	/*
-	 * During early boot the real root file system hasn't been
-	 * mounted yet, and no device nodes are present yet. Use the
-	 * same scheme to find the device that we use for mounting
-	 * the root file system.
-	 */
-	dev_t dev = name_to_dev_t(initial_devname);
+	dev_t devt;
+	int i;
 
-	if (!dev) {
-		pr_err("failed to resolve '%s'!\n", initial_devname);
-		return initial_devname;
+	for (i = 0; i < BLOCK_DEVICE_FIND_RETRIES; i++) {
+		devt = name_to_dev_t(path);
+		if (devt)
+			break;
+
+		msleep(BLOCK_DEVICE_FIND_WAIT);
 	}
 
-	ksys_unlink(devname);
-	ksys_mknod(devname, S_IFBLK | 0600, new_encode_dev(dev));
+	if (!devt) {
+		pr_err("failed to resolve '%s'\n", path);
+		return NULL;
+	}
 
-	return devname;
+	return blkdev_get_by_dev(devt, BLOCK_DEVICE_MODE, dev);
 }
-#else
-static inline const char *early_boot_devpath(const char *initial_devname)
-{
-	return initial_devname;
-}
-#endif
 
-static int __init __best_effort_init(void)
+static int __best_effort_init(void)
 {
-	struct pstore_device_info *best_effort_dev;
+	struct pstore_device_info *dev;
 	int ret;
 
 	/* No best-effort mode requested. */
@@ -299,22 +331,42 @@ static int __init __best_effort_init(void)
 		return -EINVAL;
 	}
 
-	best_effort_dev = kzalloc(sizeof(*best_effort_dev), GFP_KERNEL);
-	if (!best_effort_dev)
+	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	if (!dev)
 		return -ENOMEM;
 
-	best_effort_dev->zone.read = psblk_generic_blk_read;
-	best_effort_dev->zone.write = psblk_generic_blk_write;
+	psbdev = find_block_device(dev, blkdev);
+	if (!psbdev)
+		return -ENODEV;
 
-	ret = __register_pstore_blk(best_effort_dev,
-				    early_boot_devpath(blkdev));
+	dev->zone.read = psblk_generic_blk_read;
+	dev->zone.write = psblk_generic_blk_write;
+	dev->zone.total_size = psbdev->bd_inode->i_size & PAGE_MASK;
+
+	ret = __register_pstore_device(dev);
 	if (ret)
-		kfree(best_effort_dev);
-	else
-		pr_info("attached %s (%lu) (no dedicated panic_write!)\n",
-			blkdev, best_effort_dev->zone.total_size);
+		goto put_bdev;
+
+	pr_info("attached %s (%lu) (no dedicated panic_write!)\n",
+		blkdev, dev->zone.total_size);
+
+	return 0;
+
+put_bdev:
+	blkdev_put(psbdev, BLOCK_DEVICE_MODE);
+	psbdev = NULL;
+
+free_dev:
+	kfree(dev);
 
 	return ret;
+}
+
+static void best_effort_init(struct work_struct *work)
+{
+	mutex_lock(&pstore_blk_lock);
+	__best_effort_init();
+	mutex_unlock(&pstore_blk_lock);
 }
 
 static void __exit __best_effort_exit(void)
@@ -325,25 +377,23 @@ static void __exit __best_effort_exit(void)
 	 * Once there are "real" blk devices, there will need to be a
 	 * dedicated pstore_blk_info, etc.
 	 */
-	if (psblk_file) {
+	if (psbdev) {
 		struct pstore_device_info *dev = pstore_device_info;
 
 		__unregister_pstore_device(dev);
 		kfree(dev);
-		fput(psblk_file);
-		psblk_file = NULL;
+		blkdev_put(psbdev, BLOCK_DEVICE_MODE);
+		psbdev = NULL;
 	}
 }
 
+static DECLARE_WORK(best_effort_init_work, best_effort_init);
+
 static int __init pstore_blk_init(void)
 {
-	int ret;
+	schedule_work(&best_effort_init_work);
 
-	mutex_lock(&pstore_blk_lock);
-	ret = __best_effort_init();
-	mutex_unlock(&pstore_blk_lock);
-
-	return ret;
+	return 0;
 }
 late_initcall(pstore_blk_init);
 
