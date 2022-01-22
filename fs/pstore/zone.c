@@ -196,29 +196,42 @@ static int psz_zone_read_oldbuf(struct pstore_zone *zone, char *buf,
 	return 0;
 }
 
-static int psz_zone_write(struct pstore_zone *zone,
-		enum psz_flush_mode flush_mode, const char *buf,
-		size_t len, unsigned long off)
+struct zone_write_data {
+	struct pstore_zone *zone;
+	enum psz_flush_mode flush_mode;
+	const char *buf;
+	size_t wlen;
+	unsigned long off;
+};
+
+struct zone_write_work_data {
+	struct work_struct work;
+	struct zone_write_data data;
+};
+
+static int psz_zone_write_fail(struct pstore_zone *zone, ssize_t wcnt)
+{
+	if (wcnt == -ENOMSG)
+		return -ENOMSG;
+	atomic_set(&zone->dirty, true);
+	/* flush dirty zones nicely */
+	if (wcnt == -EBUSY && !is_on_panic())
+		schedule_delayed_work(&psz_cleaner, msecs_to_jiffies(500));
+	return -EBUSY;
+}
+
+static int _psz_zone_write(struct zone_write_data *data, bool is_on_panic)
 {
 	struct pstore_zone_info *info = pstore_zone_cxt.pstore_zone_info;
-	ssize_t wcnt = 0;
 	ssize_t (*writeop)(const char *buf, size_t bytes, loff_t pos);
-	size_t wlen;
+	struct pstore_zone *zone = data->zone;
+	enum psz_flush_mode flush_mode = data->flush_mode;
+	const char *buf = data->buf;
+	size_t wlen = data->wlen;
+	unsigned long off = data->off;
+	ssize_t wcnt = 0;
 
-	if (off > zone->buffer_size)
-		return -EINVAL;
-
-	wlen = min_t(size_t, len, zone->buffer_size - off);
-	if (buf && wlen) {
-		memcpy(zone->buffer->data + off, buf, wlen);
-		atomic_set(&zone->buffer->datalen, wlen + off);
-	}
-
-	/* avoid to damage old records */
-	if (!is_on_panic() && !atomic_read(&pstore_zone_cxt.recovered))
-		goto dirty;
-
-	writeop = is_on_panic() ? info->panic_write : info->write;
+	writeop = is_on_panic ? info->panic_write : info->write;
 	if (!writeop)
 		goto dirty;
 
@@ -248,15 +261,70 @@ static int psz_zone_write(struct pstore_zone *zone,
 	}
 
 	return 0;
+
 dirty:
-	/* no need to mark dirty if going to try next zone */
-	if (wcnt == -ENOMSG)
-		return -ENOMSG;
-	atomic_set(&zone->dirty, true);
-	/* flush dirty zones nicely */
-	if (wcnt == -EBUSY && !is_on_panic())
-		schedule_delayed_work(&psz_cleaner, msecs_to_jiffies(500));
-	return -EBUSY;
+	return psz_zone_write_fail(zone, wcnt);
+}
+
+static void psz_zone_write_work(struct work_struct *work)
+{
+	struct zone_write_work_data *work_data =
+		container_of(work, struct zone_write_work_data, work);
+	int ret;
+
+	ret = _psz_zone_write(&work_data->data, false);
+	if (ret)
+		pr_err("failed to write zone data %d\n", ret);
+
+	kfree(work_data);
+}
+
+static int psz_zone_write(struct pstore_zone *zone,
+		enum psz_flush_mode flush_mode, const char *buf,
+		size_t len, unsigned long off)
+{
+	struct pstore_zone_info *info = pstore_zone_cxt.pstore_zone_info;
+	struct zone_write_work_data *work_data;
+	struct zone_write_data panic_data;
+	struct zone_write_data *data;
+	size_t wlen;
+
+	if (off > zone->buffer_size)
+		return -EINVAL;
+
+	wlen = min_t(size_t, len, zone->buffer_size - off);
+	if (buf && wlen) {
+		memcpy(zone->buffer->data + off, buf, wlen);
+		atomic_set(&zone->buffer->datalen, wlen + off);
+	}
+
+	/* avoid to damage old records */
+	if (!is_on_panic() && !atomic_read(&pstore_zone_cxt.recovered))
+		return psz_zone_write_fail(zone, 0);
+
+	if (is_on_panic()) {
+		data = &panic_data;
+	} else {
+		work_data = kmalloc(sizeof(*work_data), GFP_ATOMIC);
+		if (!work_data)
+			return psz_zone_write_fail(zone, 0);
+
+		data = &work_data->data;
+		INIT_WORK(&work_data->work, psz_zone_write_work);
+	}
+
+	data->zone = zone;
+	data->flush_mode = flush_mode;
+	data->buf = buf;
+	data->wlen = wlen;
+	data->off = off;
+
+	if (is_on_panic())
+		return _psz_zone_write(data, true);
+
+	schedule_work(&work_data->work);
+
+	return 0;
 }
 
 static int psz_flush_dirty_zone(struct pstore_zone *zone)
