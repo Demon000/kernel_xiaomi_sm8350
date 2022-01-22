@@ -656,6 +656,24 @@ static __init int register_warn_debugfs(void)
 device_initcall(register_warn_debugfs);
 #endif
 
+static int kmsg_dump_set(void *data, u64 val)
+{
+	enum kmsg_dump_reason reason = val;
+	kmsg_dump(reason);
+	return 0;
+}
+
+DEFINE_DEBUGFS_ATTRIBUTE(kmsg_dump_fops, NULL, kmsg_dump_set, "%lld\n");
+
+static __init int register_kmsg_dump(void)
+{
+	debugfs_create_file_unsafe("kmsg_dump", 0200, NULL, NULL,
+				   &kmsg_dump_fops);
+	return 0;
+}
+
+device_initcall(register_kmsg_dump);
+
 #ifdef CONFIG_STACKPROTECTOR
 
 /*
