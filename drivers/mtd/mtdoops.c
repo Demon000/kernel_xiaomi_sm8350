@@ -280,7 +280,7 @@ static void mtdoops_do_dump(struct kmsg_dumper *dumper,
 	kmsg_dump_get_buffer(dumper, true, cxt->oops_buf + MTDOOPS_HEADER_SIZE,
 			     record_size - MTDOOPS_HEADER_SIZE, NULL);
 
-	if (reason != KMSG_DUMP_OOPS) {
+	if (reason == KMSG_DUMP_OOPS || reason == KMSG_DUMP_PANIC) {
 		/* Panics must be written immediately */
 		mtdoops_write(cxt, 1);
 	} else {
