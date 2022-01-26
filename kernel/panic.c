@@ -322,7 +322,7 @@ void panic(const char *fmt, ...)
 		 */
 		if (panic_reboot_mode != REBOOT_UNDEFINED)
 			reboot_mode = panic_reboot_mode;
-		machine_emergency_restart();
+		emergency_restart();
 	}
 #ifdef __sparc__
 	{
