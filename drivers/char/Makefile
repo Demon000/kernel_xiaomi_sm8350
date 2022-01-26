@@ -68,4 +68,3 @@ obj-$(CONFIG_ADI)		+= adi.o
 obj-$(CONFIG_MSM_RDBG)		+= rdbg.o
 obj-$(CONFIG_MSM_FASTCVPD)	+= fastcvpd.o
 obj-$(CONFIG_VIRTIO_EAVB)       += virtio_eavb/
-obj-$(CONFIG_PMSG_TO_KMSG)	+= pmsg.o
