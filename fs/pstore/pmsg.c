@@ -11,8 +11,36 @@
 
 static DEFINE_MUTEX(pmsg_lock);
 
-static ssize_t write_pmsg(struct file *file, const char __user *buf,
-			  size_t count, loff_t *ppos)
+#define LOGGER_MAGIC		'l'
+#define LOG_ID_EVENTS		2
+
+struct log_time {
+	uint32_t tv_sec;
+	uint32_t tv_nsec;
+} __attribute__((__packed__));
+
+struct android_pmsg_log_header {
+	uint8_t magic;
+	uint16_t len;
+	uint16_t uid;
+	uint16_t pid;
+} __attribute__((__packed__));
+
+struct android_log_header {
+	uint8_t id;
+	uint16_t tid;
+	struct log_time realtime;
+} __attribute__((__packed__));
+
+struct android_pmsg_prio_header {
+	uint8_t prio;
+} __attribute__((__packed__));
+
+struct android_pmsg_tag_header {
+	uint32_t tag;
+} __attribute__((__packed__));
+
+static int _pmsg_write(const char *buf, size_t count, bool user)
 {
 	struct pstore_record record;
 	int ret;
@@ -24,20 +52,142 @@ static ssize_t write_pmsg(struct file *file, const char __user *buf,
 	record.type = PSTORE_TYPE_PMSG;
 	record.size = count;
 
-	/* check outside lock, page in any data. write_user also checks */
-	if (!access_ok(buf, count))
-		return -EFAULT;
-
 	mutex_lock(&pmsg_lock);
-	ret = psinfo->write_user(&record, buf);
+	if (user)
+		ret = psinfo->write_user(&record, buf);
+	else
+		ret = psinfo->write(&record, buf);
 	mutex_unlock(&pmsg_lock);
 	return ret ? ret : count;
+}
+
+static ssize_t pmsg_write(const char *buf, size_t count)
+{
+	return _pmsg_write(buf, count, false);
+}
+
+static ssize_t pmsg_write_user(const char __user *buf, size_t count)
+{
+	return _pmsg_write(buf, count, true);
+}
+
+#define pmsg_write_arr(arr) pmsg_write(arr, sizeof(arr))
+
+static void pmsg_write_iovec_str(const struct iovec *iov)
+{
+	void __user *buf = iov->iov_base;
+	size_t len = iov->iov_len - 1;
+
+	pmsg_write_user(buf, len);
+}
+
+static bool pmsg_is_pmsg_header(unsigned long part, const struct iovec *iov)
+{
+	struct android_pmsg_log_header pmsg_header;
+	void __user *buf = iov->iov_base;
+	size_t len = iov->iov_len;
+
+	int ret;
+
+	if (part != 0)
+		return false;
+
+	if (len != sizeof(pmsg_header))
+		return false;
+
+	ret = __copy_from_user(&pmsg_header, buf, len);
+	if (ret)
+		return false;
+
+	if (pmsg_header.magic != LOGGER_MAGIC)
+		return false;
+
+	return true;
+}
+
+static bool pmsg_is_header(unsigned long part, const struct iovec *iov)
+{
+	struct android_log_header header;
+	void __user *buf = iov->iov_base;
+	size_t len = iov->iov_len;
+	int ret;
+
+	if (part != 1)
+		return false;
+
+	if (len != sizeof(struct android_log_header))
+		return false;
+
+	ret = __copy_from_user(&header, buf, len);
+	if (ret)
+		return false;
+
+	if (header.id == LOG_ID_EVENTS)
+		return false;
+
+	return true;
+}
+
+static bool pmsg_is_prio_or_tag(unsigned long part, const struct iovec *iov)
+{
+	size_t len = iov->iov_len;
+
+	if (part != 2)
+		return false;
+
+	if (len != sizeof(struct android_pmsg_prio_header) &&
+	    len != sizeof(struct android_pmsg_tag_header))
+		return false;
+
+	return true;
+}
+
+static bool pmsg_is_name_tag(unsigned long part)
+{
+	return part == 3;
+}
+
+static bool pmsg_is_message(unsigned long part)
+{
+	return part == 4;
+}
+
+const char name_tag_end[] = ": ";
+const char message_end[] = "\n";
+
+static ssize_t pmsg_write_iter(struct kiocb *iocb, struct iov_iter *from)
+{
+	size_t count = iov_iter_count(from);
+	unsigned long i;
+
+	if (!iter_is_iovec(from))
+		return -EINVAL;
+
+	for (i = 0; i < from->nr_segs; i++) {
+		const struct iovec *iov = &from->iov[i];
+
+		if (pmsg_is_pmsg_header(i, iov) ||
+		    pmsg_is_header(i, iov) ||
+		    pmsg_is_prio_or_tag(i, iov)) {
+			/* continue */
+		} else if (pmsg_is_name_tag(i)) {
+			pmsg_write_iovec_str(iov);
+			pmsg_write_arr(name_tag_end);
+		} else if (pmsg_is_message(i)) {
+			pmsg_write_iovec_str(iov);
+			pmsg_write_arr(message_end);
+		} else {
+			break;
+		}
+	}
+
+	return count;
 }
 
 static const struct file_operations pmsg_fops = {
 	.owner		= THIS_MODULE,
 	.llseek		= noop_llseek,
-	.write		= write_pmsg,
+	.write_iter = pmsg_write_iter,
 };
 
 static struct class *pmsg_class;
