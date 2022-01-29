@@ -6,10 +6,13 @@
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/input.h>
 #include <linux/io.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/platform_device.h>
+#include <linux/reboot.h>
+#include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/reboot.h>
 #include <linux/pm.h>
@@ -29,6 +32,12 @@ struct qcom_dload {
 
 	bool in_panic;
 	void __iomem *dload_dest_addr;
+
+	struct work_struct reboot_work;
+	struct input_handler handler;
+	bool power_pressed;
+	bool vol_down_pressed;
+	bool vol_up_pressed;
 };
 
 #define to_qcom_dload(o) container_of(o, struct qcom_dload, kobj)
@@ -39,6 +48,94 @@ static bool enable_dump =
 	IS_ENABLED(CONFIG_POWER_RESET_QCOM_DOWNLOAD_MODE_DEFAULT);
 static enum qcom_download_mode current_download_mode = QCOM_DOWNLOAD_NODUMP;
 static enum qcom_download_mode dump_mode = QCOM_DOWNLOAD_FULLDUMP;
+
+static void reboot_work_func(struct work_struct *work)
+{
+	kernel_restart("longpress");
+}
+
+static void input_event_handler(struct input_handle *handle, unsigned int type,
+				unsigned int code, int value)
+{
+	struct qcom_dload *poweroff = handle->private;
+
+	if (type != EV_KEY)
+		return;
+
+	switch (code) {
+	case KEY_POWER:
+		poweroff->power_pressed = value;
+		break;
+	case KEY_VOLUMEDOWN:
+		poweroff->vol_down_pressed = value;
+		break;
+	case KEY_VOLUMEUP:
+		poweroff->vol_up_pressed = value;
+		break;
+	default:
+		return;
+	}
+
+	if (!poweroff->power_pressed || !poweroff->vol_down_pressed ||
+	    !poweroff->vol_up_pressed)
+		return;
+
+	schedule_work(&poweroff->reboot_work);
+}
+
+static int input_handler_connect(struct input_handler *handler,
+				 struct input_dev *dev,
+				 const struct input_device_id *id)
+{
+	struct input_handle *handle;
+	int rc = 0;
+
+	handle = kzalloc(sizeof(*handle), GFP_KERNEL);
+	if (!handle)
+		return -ENOMEM;
+
+	handle->private = handler->private;
+	handle->dev = dev;
+	handle->handler = handler;
+	handle->name = handler->name;
+
+	rc = input_register_handle(handle);
+	if (rc) {
+		pr_err("failed to register input handle\n");
+		goto error;
+	}
+
+	rc = input_open_device(handle);
+	if (rc) {
+		pr_err("failed to open input device\n");
+		goto error_unregister;
+	}
+
+	return 0;
+
+error_unregister:
+	input_unregister_handle(handle);
+
+error:
+	kfree(handle);
+
+	return rc;
+}
+
+static void input_handler_disconnect(struct input_handle *handle)
+{
+	 input_close_device(handle);
+	 input_unregister_handle(handle);
+	 kfree(handle);
+}
+
+static const struct input_device_id input_handler_ids[] = {
+	{
+		.flags = INPUT_DEVICE_ID_MATCH_EVBIT,
+		.evbit = { [BIT_WORD(EV_KEY)] = BIT_MASK(EV_KEY) },
+	},
+	{ },
+};
 
 static int set_download_mode(enum qcom_download_mode mode)
 {
@@ -256,6 +353,7 @@ static int qcom_dload_reboot(struct notifier_block *this, unsigned long event,
 	char *cmd = ptr;
 	struct qcom_dload *poweroff = container_of(this, struct qcom_dload,
 						     reboot_nb);
+	bool in_longpress = false;
 
 	/* Clean shutdown, disable dump mode to allow normal restart */
 	set_download_mode(QCOM_DOWNLOAD_NODUMP);
@@ -265,9 +363,11 @@ static int qcom_dload_reboot(struct notifier_block *this, unsigned long event,
 			set_download_mode(QCOM_DOWNLOAD_EDL);
 		else if (!strcmp(cmd, "qcom_dload"))
 			msm_enable_dump_mode(true);
+		else if (!strcmp(cmd, "longpress"))
+			in_longpress = true;
 	}
 
-	if (poweroff->in_panic)
+	if (poweroff->in_panic || in_longpress)
 		reboot_mode = REBOOT_WARM;
 
 	return NOTIFY_OK;
@@ -355,12 +455,24 @@ static int qcom_dload_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, poweroff);
 
+	INIT_WORK(&poweroff->reboot_work, reboot_work_func);
+	poweroff->handler.private = poweroff;
+	poweroff->handler.event = input_event_handler;
+	poweroff->handler.connect = input_handler_connect;
+	poweroff->handler.disconnect = input_handler_disconnect;
+	poweroff->handler.name = "dload_mode";
+	poweroff->handler.id_table = input_handler_ids;
+
+	input_register_handler(&poweroff->handler);
+
 	return 0;
 }
 
 static int qcom_dload_remove(struct platform_device *pdev)
 {
 	struct qcom_dload *poweroff = platform_get_drvdata(pdev);
+
+	input_unregister_handler(&poweroff->handler);
 
 	atomic_notifier_chain_unregister(&panic_notifier_list,
 					 &poweroff->panic_nb);

@@ -28,6 +28,7 @@ struct poweroff_reason {
 
 static struct poweroff_reason reasons[] = {
 	{ "recovery",			0x01 },
+	{ "longpress",			0x01 },
 	{ "bootloader",			0x02 },
 	{ "rtc",			0x03 },
 	{ "dm-verity device corrupted",	0x04 },

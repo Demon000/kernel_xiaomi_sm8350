@@ -2441,7 +2441,6 @@ static int qpnp_pon_probe(struct platform_device *pdev)
 	dev_set_drvdata(dev, pon);
 
 	INIT_DELAYED_WORK(&pon->bark_work, bark_work_func);
-
 	rc = qpnp_pon_parse_dt_power_off_config(pon);
 	if (rc)
 		return rc;
