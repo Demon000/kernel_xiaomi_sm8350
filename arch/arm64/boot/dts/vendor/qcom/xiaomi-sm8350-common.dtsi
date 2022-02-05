@@ -81,7 +81,7 @@
 	fingerprint_goodix {
 		compatible = "goodix,fingerprint";
 		l11c_vdd-supply = <&L11C>;
-		goodix,gpio-reset = <&tlmm 39 0x0>;
+		reset-gpio = <&tlmm 39 0>;
 		status = "ok";
 	};
 
